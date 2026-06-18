@@ -7,11 +7,13 @@ import { getSeverityColor } from '../utils/recommendations';
 interface SnorePatternsChartProps {
   weeklyData: DailyStats[];
   chartType?: 'line' | 'bar';
+  title?: string;
 }
 
 export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
   weeklyData,
   chartType = 'line',
+  title = 'Snoring Pattern',
 }) => {
   const chartData = useMemo(() => {
     const labels = weeklyData.map((d) => {
@@ -63,7 +65,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>7-Day Snoring Pattern</Text>
+      <Text style={styles.title}>{title}</Text>
 
       {chartType === 'line' ? (
         <LineChart

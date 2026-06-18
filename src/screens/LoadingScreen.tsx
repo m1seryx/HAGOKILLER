@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text } from 'react-native';
+import { FontAwesome5 } from '@expo/vector-icons';
 
 interface LoadingScreenProps {
   onLoadingComplete: () => void;
@@ -17,7 +18,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.logo}>🛌</Text>
+        <FontAwesome5 name="bed" size={64} color="#3b82f6" style={styles.logo} />
         <Text style={styles.title}>Smart Pillow</Text>
         <Text style={styles.subtitle}>Sleep Analytics Dashboard</Text>
 
@@ -48,7 +49,6 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   logo: {
-    fontSize: 64,
     marginBottom: 20,
   },
   title: {
