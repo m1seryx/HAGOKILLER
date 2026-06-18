@@ -305,18 +305,76 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           <RecommendationCard data={recommendations} />
         </View>
 
-        {/* Trend */}
+        {/* Monthly Trend */}
         <View style={styles.trendSection}>
           <Text style={styles.trendLabel}>Monthly Trend</Text>
-          <View style={[styles.trendBadge, {
-            backgroundColor: trend === 'improving' ? '#10b98126' : trend === 'worsening' ? '#ef444426' : '#f5a52e26',
-          }]}>
-            <FontAwesome5 name={trend === 'improving' ? 'arrow-trend-up' : trend === 'worsening' ? 'arrow-trend-down' : 'minus'} size={13} color={trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b'} style={{ marginRight: 6 }} />
-            <Text style={[styles.trendBadgeText, {
-              color: trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b',
+          <View style={styles.trendCard}>
+            {/* Trend summary badge */}
+            <View style={[styles.trendSummary, {
+              backgroundColor: trend === 'improving' ? '#10b98120' : trend === 'worsening' ? '#ef444420' : '#f59e0b20',
             }]}>
-              {trend === 'improving' ? 'Getting better' : trend === 'worsening' ? 'Getting worse' : 'Stable'}
-            </Text>
+              <FontAwesome5
+                name={trend === 'improving' ? 'chart-line' : trend === 'worsening' ? 'exclamation-triangle' : 'equals'}
+                size={14}
+                color={trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b'}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={[styles.trendSummaryText, {
+                color: trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b',
+              }]}>
+                {trend === 'improving' ? 'Improving over time' : trend === 'worsening' ? 'Worsening over time' : 'Stable pattern'}
+              </Text>
+            </View>
+
+            {/* Month rows */}
+            {monthHistory.map((m, i) => {
+              const prev = monthHistory[i - 1];
+              const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : null;
+              const mColor = getSeverityColor(m.severity);
+              return (
+                <View key={m.month} style={styles.monthRow}>
+                  <View style={styles.monthLeft}>
+                    <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM YYYY')}</Text>
+                    <View style={[styles.monthSeverityBadge, { backgroundColor: mColor + '22' }]}>
+                      <View style={[styles.monthDot, { backgroundColor: mColor }]} />
+                      <Text style={[styles.monthSeverityText, { color: mColor }]}>
+                        {m.severity.charAt(0).toUpperCase() + m.severity.slice(1)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.monthRight}>
+                    <Text style={styles.monthEvents}>{m.totalSnoreEvents}</Text>
+                    <Text style={styles.monthEventsLabel}>events</Text>
+                    {change !== null && (
+                      <View style={styles.monthChange}>
+                        <FontAwesome5
+                          name={change < 0 ? 'arrow-down' : change > 0 ? 'arrow-up' : 'minus'}
+                          size={10}
+                          color={change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b'}
+                        />
+                        <Text style={[styles.monthChangeText, {
+                          color: change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b',
+                        }]}>
+                          {Math.abs(change)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+
+            {/* Avg duration + interventions summary */}
+            <View style={styles.trendFooter}>
+              <View style={styles.trendStat}>
+                <FontAwesome5 name="clock" size={11} color="#6b7280" style={{ marginRight: 4 }} />
+                <Text style={styles.trendStatText}>Avg duration: {dashboardData.thisMonth.averageDuration}s</Text>
+              </View>
+              <View style={styles.trendStat}>
+                <FontAwesome5 name="wind" size={11} color="#6b7280" style={{ marginRight: 4 }} />
+                <Text style={styles.trendStatText}>Interventions: {dashboardData.thisMonth.interventionCount}</Text>
+              </View>
+            </View>
           </View>
         </View>
 
@@ -381,6 +439,23 @@ const styles = StyleSheet.create({
   trendLabel: { fontSize: 12, fontWeight: '600', color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   trendBadge: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   trendBadgeText: { fontSize: 14, fontWeight: '600' },
+  trendCard: { backgroundColor: '#2d2d44', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#3d3d5c' },
+  trendSummary: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
+  trendSummaryText: { fontSize: 13, fontWeight: '700' },
+  monthRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
+  monthLeft: { flex: 1 },
+  monthName: { fontSize: 14, fontWeight: '600', color: '#e5e7eb', marginBottom: 4 },
+  monthSeverityBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  monthDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
+  monthSeverityText: { fontSize: 11, fontWeight: '700' },
+  monthRight: { alignItems: 'flex-end' },
+  monthEvents: { fontSize: 22, fontWeight: '800', color: '#ffffff' },
+  monthEventsLabel: { fontSize: 10, color: '#6b7280', marginTop: -2 },
+  monthChange: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 3 },
+  monthChangeText: { fontSize: 11, fontWeight: '700' },
+  trendFooter: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 },
+  trendStat: { flexDirection: 'row', alignItems: 'center' },
+  trendStatText: { fontSize: 11, color: '#6b7280' },
   footerInfo: {
     marginHorizontal: 20, marginBottom: 20, padding: 12,
     backgroundColor: '#2d2d44', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#3b82f6',
