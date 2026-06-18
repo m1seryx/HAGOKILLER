@@ -1,8 +1,44 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  KeyboardAvoidingView, Platform, Animated,
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
+
+const ZzzDot: React.FC<{ letter: string; delay: number; baseX: number }> = ({ letter, delay, baseX }) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.5)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.parallel([
+          Animated.timing(opacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 1, duration: 400, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(translateY, { toValue: -30, duration: 900, useNativeDriver: true }),
+          Animated.timing(opacity, { toValue: 0, duration: 900, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(translateY, { toValue: 0, duration: 0, useNativeDriver: true }),
+          Animated.timing(scale, { toValue: 0.5, duration: 0, useNativeDriver: true }),
+        ]),
+        Animated.delay(600 - delay),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, []);
+
+  return (
+    <Animated.Text style={[styles.zzz, { left: baseX, opacity, transform: [{ translateY }, { scale }] }]}>
+      {letter}
+    </Animated.Text>
+  );
+};
 
 interface NameInputScreenProps {
   onNameSubmit: (name: string) => void;
@@ -14,7 +50,12 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({ onNameSubmit }
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.content}>
-        <FontAwesome5 name="bed" size={64} color="#3b82f6" style={styles.logo} />
+        <View style={styles.iconWrapper}>
+          <FontAwesome5 name="bed" size={64} color="#3b82f6" />
+          <ZzzDot letter="z" delay={0}   baseX={52} />
+          <ZzzDot letter="Z" delay={350} baseX={66} />
+          <ZzzDot letter="Z" delay={700} baseX={80} />
+        </View>
         <Text style={styles.title}>Welcome!</Text>
         <Text style={styles.subtitle}>What should we call you?</Text>
         <TextInput
@@ -42,6 +83,8 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({ onNameSubmit }
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a2e', justifyContent: 'center' },
   content: { alignItems: 'center', paddingHorizontal: 32 },
+  iconWrapper: { marginBottom: 24, width: 120, height: 80, justifyContent: 'flex-end', alignItems: 'flex-start' },
+  zzz: { position: 'absolute', bottom: 60, color: '#93c5fd', fontWeight: '800', fontSize: 18 },
   logo: { marginBottom: 24 },
   title: { fontSize: 32, fontWeight: 'bold', color: '#ffffff', marginBottom: 8 },
   subtitle: { fontSize: 16, color: '#9ca3af', marginBottom: 40 },
