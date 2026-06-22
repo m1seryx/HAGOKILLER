@@ -34,6 +34,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const [monthHistory, setMonthHistory] = useState<MonthlyStats[]>([]);
   const [simulatedSeverity, setSimulatedSeverity] = useState<SimulatedSeverity>('bad');
   const [dropdownVisible, setDropdownVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<'analytics' | 'recommendations'>('analytics');
   const [dateRange, setDateRange] = useState<DateRange>({
     from: moment().subtract(7, 'days').format('YYYY-MM-DD'),
     to: moment().format('YYYY-MM-DD'),
@@ -287,26 +288,41 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           />
         </View>
 
-        {/* Key Metrics */}
-        <View style={styles.metricsSection}>
-          <StatsCard label="Snoring Events" value={stats.totalSnoreEvents} icon="volume-up" severity={stats.severity} />
-          <StatsCard label="Avg. Duration" value={stats.averageDuration} icon="clock" unit=" sec" />
-          <StatsCard label="Interventions" value={stats.interventionCount} icon="wind" />
-          <StatsCard label="Peak Hour" value={moment(stats.peakHour, 'H').format('hA')} icon="moon" />
+        {/* Tabs */}
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'analytics' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('analytics')}
+          >
+            <FontAwesome5 name="chart-bar" size={13} color={activeTab === 'analytics' ? '#3b82f6' : '#6b7280'} style={{ marginRight: 6 }} />
+            <Text style={[styles.tabText, activeTab === 'analytics' && styles.tabTextActive]}>Analytics</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'recommendations' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('recommendations')}
+          >
+            <FontAwesome5 name="lightbulb" size={13} color={activeTab === 'recommendations' ? '#3b82f6' : '#6b7280'} style={{ marginRight: 6 }} solid />
+            <Text style={[styles.tabText, activeTab === 'recommendations' && styles.tabTextActive]}>Recommendations</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Chart */}
-        <View style={styles.chartSection}>
-          <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
-        </View>
+        {activeTab === 'analytics' ? (
+          <>
+            {/* Key Metrics */}
+            <View style={styles.metricsSection}>
+              <StatsCard label="Snoring Events" value={stats.totalSnoreEvents} icon="volume-up" severity={stats.severity} />
+              <StatsCard label="Avg. Duration" value={stats.averageDuration} icon="clock" unit=" sec" />
+              <StatsCard label="Interventions" value={stats.interventionCount} icon="wind" />
+              <StatsCard label="Peak Hour" value={moment(stats.peakHour, 'H').format('hA')} icon="moon" />
+            </View>
 
-        {/* Recommendations */}
-        <View style={styles.recommendationSection}>
-          <RecommendationCard data={recommendations} />
-        </View>
+            {/* Chart */}
+            <View style={styles.chartSection}>
+              <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
+            </View>
 
-        {/* Monthly Trend */}
-        <View style={styles.trendSection}>
+            {/* Monthly Trend */}
+            <View style={styles.trendSection}>
           <Text style={styles.trendLabel}>Monthly Trend</Text>
           <View style={styles.trendCard}>
             {/* Trend summary badge */}
@@ -376,7 +392,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
               </View>
             </View>
           </View>
-        </View>
+          </View>
+          </>
+        ) : (
+          <View style={styles.recommendationSection}>
+            <RecommendationCard data={recommendations} />
+          </View>
+        )}
 
         {/* Footer */}
         <View style={styles.footerInfo}>
@@ -432,6 +454,11 @@ const styles = StyleSheet.create({
   modalOption: { paddingHorizontal: 12, paddingVertical: 14, borderRadius: 8 },
   modalOptionText: { fontSize: 15, fontWeight: '600' },
   filterWrapper: { paddingHorizontal: 20 },
+  tabBar: { flexDirection: 'row', marginHorizontal: 20, marginBottom: 16, backgroundColor: '#2d2d44', borderRadius: 10, padding: 4 },
+  tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
+  tabButtonActive: { backgroundColor: '#1a1a2e' },
+  tabText: { fontSize: 13, fontWeight: '600', color: '#6b7280' },
+  tabTextActive: { color: '#3b82f6' },
   metricsSection: { paddingHorizontal: 20, marginBottom: 20 },
   chartSection: { paddingHorizontal: 20, marginBottom: 20 },
   recommendationSection: { paddingHorizontal: 20, marginBottom: 16 },
