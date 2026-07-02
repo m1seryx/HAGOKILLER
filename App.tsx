@@ -3,15 +3,17 @@ import { View, StyleSheet } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { LoadingScreen } from './src/screens/LoadingScreen';
 import { NameInputScreen } from './src/screens/NameInputScreen';
+import { PairingPinScreen } from './src/screens/PairingPinScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
+import { UserProfile } from './src/types';
 
 try { SplashScreen.preventAutoHideAsync(); } catch (_) {}
 
-type AppStep = 'loading' | 'name-input' | 'dashboard';
+type AppStep = 'loading' | 'name-input' | 'pairing-pin' | 'dashboard';
 
 export default function App() {
   const [step, setStep] = useState<AppStep>('loading');
-  const [userName, setUserName] = useState('');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     try { SplashScreen.hideAsync(); } catch (_) {}
@@ -23,10 +25,13 @@ export default function App() {
         <LoadingScreen onLoadingComplete={() => setStep('name-input')} />
       )}
       {step === 'name-input' && (
-        <NameInputScreen onNameSubmit={(name) => { setUserName(name); setStep('dashboard'); }} />
+        <NameInputScreen onProfileSubmit={(profile) => { setUserProfile(profile); setStep('pairing-pin'); }} />
+      )}
+      {step === 'pairing-pin' && (
+        <PairingPinScreen onPinSubmit={() => setStep('dashboard')} />
       )}
       {step === 'dashboard' && (
-        <DashboardScreen userName={userName} />
+        <DashboardScreen userName={userProfile?.name || ''} userProfile={userProfile || undefined} />
       )}
     </View>
   );

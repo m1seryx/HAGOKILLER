@@ -101,6 +101,8 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
           data={barChartData}
           width={chartWidth}
           height={220}
+          yAxisLabel=""
+          yAxisSuffix=""
           chartConfig={{
             backgroundColor: '#1a1a2e',
             backgroundGradientFrom: '#1a1a2e',

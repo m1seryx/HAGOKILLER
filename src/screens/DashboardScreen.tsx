@@ -4,7 +4,7 @@ import {
   ActivityIndicator, RefreshControl, TouchableOpacity, Modal,
 } from 'react-native';
 import moment from 'moment';
-import { DashboardData, DailyStats, MonthlyStats } from '../types';
+import { DashboardData, DailyStats, MonthlyStats, SleepEvent, UserProfile } from '../types';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
 import { getRecommendations, getSeverityColor } from '../utils/recommendations';
 import { StatsCard } from '../components/StatsCard';
@@ -18,6 +18,7 @@ type SimulatedSeverity = 'normal' | 'bad' | 'danger';
 
 interface DashboardScreenProps {
   userName: string;
+  userProfile?: UserProfile;
 }
 
 const SEVERITY_EVENTS: Record<SimulatedSeverity, number> = {
@@ -34,7 +35,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const [monthHistory, setMonthHistory] = useState<MonthlyStats[]>([]);
   const [simulatedSeverity, setSimulatedSeverity] = useState<SimulatedSeverity>('bad');
   const [dropdownVisible, setDropdownVisible] = useState(false);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'recommendations'>('analytics');
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<'analytics' | 'recommendations' | 'logs'>('analytics');
+  const [eventLogs, setEventLogs] = useState<SleepEvent[]>([]);
+  const [sortOption, setSortOption] = useState<'date' | 'severity' | 'duration'>('date');
+  const [snoreThreshold, setSnoreThreshold] = useState(3);
+  const [pumpDuration, setPumpDuration] = useState(12);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [deviceStatus] = useState({
+    connected: true,
+    mode: 'Pairing Ready',
+    signal: 'Strong',
+    battery: '82%',
+    lastSeen: 'just now',
+  });
   const [dateRange, setDateRange] = useState<DateRange>({
     from: moment().subtract(7, 'days').format('YYYY-MM-DD'),
     to: moment().format('YYYY-MM-DD'),
@@ -48,6 +62,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
     try {
       setLoading(true);
       const events = await bleService.fetchSleepEvents();
+      setEventLogs(events);
       const data = calculateDashboardData(events);
       setDashboardData(data);
       const now = moment();
@@ -195,12 +210,51 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
     }
   };
 
+  const getFilteredAndSortedLogs = (): SleepEvent[] => {
+    const from = moment(dateRange.from);
+    const to = moment(dateRange.to);
+    const severityRank: Record<SleepEvent['severity'], number> = { low: 1, medium: 2, high: 3 };
+
+    return [...eventLogs]
+      .filter((event) => {
+        const eventDate = moment(event.timestamp);
+        return eventDate.isSameOrAfter(from, 'day') && eventDate.isSameOrBefore(to, 'day');
+      })
+      .sort((a, b) => {
+        if (sortOption === 'duration') {
+          return b.duration - a.duration;
+        }
+        if (sortOption === 'severity') {
+          return severityRank[b.severity] - severityRank[a.severity];
+        }
+        return b.timestamp - a.timestamp;
+      });
+  };
+
+  const handleDeleteLog = (id: string) => {
+    setEventLogs((current) => current.filter((entry) => entry.id !== id));
+  };
+
+  const handleClearLogs = () => {
+    setEventLogs([]);
+  };
+
+  const handleSaveDeviceSettings = () => {
+    setSaveMessage('Device settings saved');
+    setTimeout(() => setSaveMessage(''), 2800);
+  };
+
+  const visibleLogs = getFilteredAndSortedLogs();
+  const logCount = visibleLogs.length;
+
   const { stats, trend } = getDisplayStats();
   const { data: chartData, title: chartTitle } = getChartData();
   const recommendations = getRecommendations(stats, dashboardData.thisMonth, trend);
   const severityColor = getSeverityColor(simulatedSeverity);
+  const deviceStatusColor = deviceStatus.connected ? '#10b981' : '#f59e0b';
 
   const severityOptions: SimulatedSeverity[] = ['normal', 'bad', 'danger'];
+  const settingsOptions = ['Pairing PIN', 'Bluetooth', 'Notifications'];
   const severityLabels: Record<SimulatedSeverity, string> = {
     normal: 'Normal (0–3 events/day)',
     bad: 'Bad (4–10 events/day)',
@@ -215,7 +269,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
       >
         {/* Header */}
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerContent}>
             <Text style={styles.greeting}>Hello, {userName} <FontAwesome5 name="hand-paper" size={20} color="#f59e0b" /></Text>
             <View style={styles.statusRow}>
               <Text style={styles.statusLabel}>Snoring Status — </Text>
@@ -225,15 +279,63 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
             </View>
             <Text style={styles.headerSubtitle}>{moment().format('dddd, MMMM D, YYYY')}</Text>
           </View>
-          <View style={[styles.statusBadge, { borderColor: severityColor }]}>
-            <View style={[styles.statusDot, { backgroundColor: severityColor }]} />
-            <Text style={[styles.statusBadgeText, { color: severityColor }]}>
-              {simulatedSeverity.toUpperCase()}
-            </Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity style={styles.settingsButton} onPress={() => setSettingsVisible(true)}>
+              <FontAwesome5 name="cog" size={18} color="#ffffff" />
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Simulator Dropdown */}
+        <Modal transparent visible={settingsVisible} animationType="fade" onRequestClose={() => setSettingsVisible(false)}>
+          <TouchableOpacity style={styles.modalOverlay} onPress={() => setSettingsVisible(false)}>
+            <View style={styles.modalMenu}>
+              <Text style={styles.modalTitle}>Device Settings</Text>
+
+              <View style={styles.deviceCard}>
+                <View style={styles.deviceHeader}>
+                  <View style={styles.deviceTitleRow}>
+                    <FontAwesome5 name="microchip" size={16} color="#60a5fa" />
+                    <Text style={styles.deviceTitle}>ESP32 Device Status</Text>
+                  </View>
+                  <View style={[styles.deviceBadge, { backgroundColor: deviceStatusColor + '22' }]}> 
+                    <View style={[styles.statusDot, { backgroundColor: deviceStatusColor }]} />
+                    <Text style={[styles.deviceBadgeText, { color: deviceStatusColor }]}> 
+                      {deviceStatus.connected ? 'Connected' : 'Offline'}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.deviceInfoRow}>
+                  <Text style={styles.deviceLabel}>Device</Text>
+                  <Text style={styles.deviceValue}>HAGOKILLER Pillow</Text>
+                </View>
+                <View style={styles.deviceInfoRow}>
+                  <Text style={styles.deviceLabel}>Mode</Text>
+                  <Text style={styles.deviceValue}>{deviceStatus.mode}</Text>
+                </View>
+                <View style={styles.deviceInfoRow}>
+                  <Text style={styles.deviceLabel}>Signal</Text>
+                  <Text style={styles.deviceValue}>{deviceStatus.signal}</Text>
+                </View>
+                <View style={styles.deviceInfoRow}>
+                  <Text style={styles.deviceLabel}>Battery</Text>
+                  <Text style={styles.deviceValue}>{deviceStatus.battery}</Text>
+                </View>
+                <View style={styles.deviceInfoRow}>
+                  <Text style={styles.deviceLabel}>Last Seen</Text>
+                  <Text style={styles.deviceValue}>{deviceStatus.lastSeen}</Text>
+                </View>
+              </View>
+
+              {settingsOptions.map((opt) => (
+                <View key={opt} style={styles.modalOption}>
+                  <Text style={styles.modalOptionText}>{opt}</Text>
+                </View>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+
         <View style={styles.simulatorSection}>
           <Text style={styles.simulatorLabel}>Simulate Severity</Text>
           <TouchableOpacity
@@ -303,6 +405,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           >
             <FontAwesome5 name="lightbulb" size={13} color={activeTab === 'recommendations' ? '#3b82f6' : '#6b7280'} style={{ marginRight: 6 }} solid />
             <Text style={[styles.tabText, activeTab === 'recommendations' && styles.tabTextActive]}>Recommendations</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'logs' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('logs')}
+          >
+            <FontAwesome5 name="clipboard-list" size={13} color={activeTab === 'logs' ? '#3b82f6' : '#6b7280'} style={{ marginRight: 6 }} />
+            <Text style={[styles.tabText, activeTab === 'logs' && styles.tabTextActive]}>Logs</Text>
           </TouchableOpacity>
         </View>
 
@@ -394,9 +503,114 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           </View>
           </View>
           </>
-        ) : (
+        ) : activeTab === 'recommendations' ? (
           <View style={styles.recommendationSection}>
             <RecommendationCard data={recommendations} />
+          </View>
+        ) : (
+          <View style={styles.logsSection}>
+            <View style={styles.settingsCard}>
+              <Text style={styles.sectionHeader}>Device Parameter Settings</Text>
+              <Text style={styles.settingDescription}>
+                Adjust the snore detection and pump behavior for the connected device.
+              </Text>
+
+              <View style={styles.settingRow}>
+                <View>
+                  <Text style={styles.settingLabel}>Consecutive snore threshold</Text>
+                  <Text style={styles.settingHint}>Number of snoring events before intervention</Text>
+                </View>
+                <View style={styles.valueControlRow}>
+                  <TouchableOpacity
+                    style={styles.stepButton}
+                    onPress={() => setSnoreThreshold((value) => Math.max(1, value - 1))}
+                  >
+                    <Text style={styles.stepButtonText}>-</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.settingValue}>{snoreThreshold}</Text>
+                  <TouchableOpacity
+                    style={styles.stepButton}
+                    onPress={() => setSnoreThreshold((value) => Math.min(10, value + 1))}
+                  >
+                    <Text style={styles.stepButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.settingRow}>
+                <View>
+                  <Text style={styles.settingLabel}>Pump activation duration</Text>
+                  <Text style={styles.settingHint}>Seconds of air pump delivery</Text>
+                </View>
+                <View style={styles.valueControlRow}>
+                  <TouchableOpacity
+                    style={styles.stepButton}
+                    onPress={() => setPumpDuration((value) => Math.max(5, value - 1))}
+                  >
+                    <Text style={styles.stepButtonText}>-</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.settingValue}>{pumpDuration}s</Text>
+                  <TouchableOpacity
+                    style={styles.stepButton}
+                    onPress={() => setPumpDuration((value) => Math.min(30, value + 1))}
+                  >
+                    <Text style={styles.stepButtonText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {saveMessage ? <Text style={styles.saveMessage}>{saveMessage}</Text> : null}
+              <TouchableOpacity style={styles.saveButton} onPress={handleSaveDeviceSettings}>
+                <Text style={styles.saveButtonText}>Save Device Settings</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={[styles.settingsCard, { marginTop: 16 }]}> 
+              <View style={styles.logsHeader}>
+                <View>
+                  <Text style={styles.sectionHeader}>Sleep Event Logs</Text>
+                  <Text style={styles.settingDescription}>{logCount} events shown for selected range</Text>
+                </View>
+                <TouchableOpacity style={styles.clearButton} onPress={handleClearLogs}>
+                  <Text style={styles.clearButtonText}>Clear History</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.sortRow}>
+                <Text style={styles.sortLabel}>Sort by</Text>
+                {(['date', 'severity', 'duration'] as const).map((option) => (
+                  <TouchableOpacity
+                    key={option}
+                    style={[styles.sortOption, sortOption === option && styles.sortOptionActive]}
+                    onPress={() => setSortOption(option)}
+                  >
+                    <Text style={[styles.sortOptionText, sortOption === option && styles.sortOptionTextActive]}>
+                      {option === 'date' ? 'Date' : option === 'severity' ? 'Severity' : 'Duration'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {visibleLogs.length === 0 ? (
+                <View style={styles.emptyLogsRow}>
+                  <Text style={styles.emptyLogsText}>No sleep events available for the selected range.</Text>
+                </View>
+              ) : (
+                visibleLogs.map((entry) => (
+                  <View key={entry.id} style={styles.logRow}>
+                    <View style={styles.logContent}>
+                      <Text style={styles.logTimestamp}>{moment(entry.timestamp).format('MMM D, h:mm A')}</Text>
+                      <Text style={styles.logDetails}>
+                        {entry.severity.charAt(0).toUpperCase() + entry.severity.slice(1)} severity · {entry.duration}s · Intervention {entry.interventionTriggered ? 'Yes' : 'No'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity onPress={() => handleDeleteLog(entry.id)} style={styles.deleteIconButton}>
+                      <FontAwesome5 name="trash-alt" size={14} color="#ef4444" />
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+            </View>
           </View>
         )}
 
@@ -428,6 +642,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12,
   },
+  headerContent: { flex: 1, paddingRight: 8 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  settingsButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#2d2d44',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#3d3d5c',
+  },
   greeting: { fontSize: 24, fontWeight: '700', color: '#ffffff', marginBottom: 4 },
   statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   statusLabel: { fontSize: 14, color: '#9ca3af' },
@@ -439,6 +665,56 @@ const styles = StyleSheet.create({
   },
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
   statusBadgeText: { fontSize: 11, fontWeight: '700' },
+  deviceCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#2d2d44',
+    borderWidth: 1,
+    borderColor: '#3d3d5c',
+  },
+  deviceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deviceTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deviceTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  deviceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  deviceBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  deviceInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  deviceLabel: {
+    fontSize: 12,
+    color: '#9ca3af',
+  },
+  deviceValue: {
+    fontSize: 12,
+    color: '#f3f4f6',
+    fontWeight: '600',
+  },
   simulatorSection: { paddingHorizontal: 20, marginBottom: 16 },
   simulatorLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   dropdownButton: {
@@ -462,6 +738,36 @@ const styles = StyleSheet.create({
   metricsSection: { paddingHorizontal: 20, marginBottom: 20 },
   chartSection: { paddingHorizontal: 20, marginBottom: 20 },
   recommendationSection: { paddingHorizontal: 20, marginBottom: 16 },
+  logsSection: { paddingHorizontal: 20, marginBottom: 20 },
+  settingsCard: { backgroundColor: '#2d2d44', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#3d3d5c' },
+  sectionHeader: { fontSize: 16, fontWeight: '700', color: '#ffffff', marginBottom: 6 },
+  settingDescription: { fontSize: 12, color: '#9ca3af', marginBottom: 14, lineHeight: 18 },
+  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  valueControlRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  stepButton: { width: 34, height: 34, borderRadius: 10, borderWidth: 1, borderColor: '#3d3d5c', justifyContent: 'center', alignItems: 'center', backgroundColor: '#1f2937' },
+  stepButtonText: { fontSize: 18, color: '#ffffff', fontWeight: '700' },
+  settingValue: { fontSize: 16, fontWeight: '700', color: '#ffffff', minWidth: 40, textAlign: 'center' },
+  settingLabel: { fontSize: 13, fontWeight: '700', color: '#f3f4f6', marginBottom: 2 },
+  settingHint: { fontSize: 11, color: '#9ca3af' },
+  saveButton: { marginTop: 6, backgroundColor: '#3b82f6', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  saveButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
+  saveMessage: { color: '#10b981', fontSize: 12, marginBottom: 8 },
+  logsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  clearButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, borderWidth: 1, borderColor: '#ef4444' },
+  clearButtonText: { color: '#ef4444', fontSize: 12, fontWeight: '700' },
+  sortRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  sortLabel: { fontSize: 12, color: '#9ca3af', marginRight: 8 },
+  sortOption: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: '#1f2937' },
+  sortOptionActive: { backgroundColor: '#3b82f6' },
+  sortOptionText: { fontSize: 12, color: '#e5e7eb' },
+  sortOptionTextActive: { color: '#ffffff', fontWeight: '700' },
+  emptyLogsRow: { paddingVertical: 22, alignItems: 'center' },
+  emptyLogsText: { fontSize: 13, color: '#9ca3af' },
+  logRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
+  logContent: { flex: 1, paddingRight: 12 },
+  logTimestamp: { fontSize: 13, color: '#ffffff', fontWeight: '700', marginBottom: 4 },
+  logDetails: { fontSize: 12, color: '#9ca3af', lineHeight: 18 },
+  deleteIconButton: { padding: 8 },
   trendSection: { marginHorizontal: 20, marginBottom: 20 },
   trendLabel: { fontSize: 12, fontWeight: '600', color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   trendBadge: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
