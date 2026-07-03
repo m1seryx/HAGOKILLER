@@ -12,6 +12,7 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
+    "types": ["jest"],
     "noEmitOnError": true,
     "noImplicitAny": true,
     "moduleResolution": "bundler",
