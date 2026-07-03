@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, SafeAreaView,
   ActivityIndicator, RefreshControl, TouchableOpacity, Modal,
+  Animated,
 } from 'react-native';
 import moment from 'moment';
 import { DashboardData, DailyStats, MonthlyStats, SleepEvent, UserProfile } from '../types';
-import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
+import { calculateDailyStats, calculateMonthlyStats, calculateTrend, calculateInterventionEffectiveness } from '../utils/statsCalculator';
 import { getRecommendations, getSeverityColor } from '../utils/recommendations';
 import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
@@ -42,11 +43,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const [snoreThreshold, setSnoreThreshold] = useState(3);
   const [pumpDuration, setPumpDuration] = useState(12);
   const [saveMessage, setSaveMessage] = useState('');
+  const barAnimations = useRef<Animated.Value[]>([]);
   const [deviceStatus] = useState({
     connected: true,
     mode: 'Pairing Ready',
     signal: 'Strong',
-    battery: '82%',
+    battery: 82,
+    pairingStatus: 'Aligned',
     lastSeen: 'just now',
   });
   const [dateRange, setDateRange] = useState<DateRange>({
@@ -57,6 +60,25 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const bleService = useRef(new MockBLEService()).current;
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    if (!dashboardData) return;
+
+    if (barAnimations.current.length === 0) {
+      barAnimations.current = Array.from({ length: 24 }, () => new Animated.Value(0));
+    }
+
+    const animations = barAnimations.current.map((anim, index) =>
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 280,
+        delay: index * 20,
+        useNativeDriver: false,
+      })
+    );
+
+    Animated.parallel(animations).start();
+  }, [dashboardData]);
 
   const loadData = async () => {
     try {
@@ -252,6 +274,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const recommendations = getRecommendations(stats, dashboardData.thisMonth, trend);
   const severityColor = getSeverityColor(simulatedSeverity);
   const deviceStatusColor = deviceStatus.connected ? '#10b981' : '#f59e0b';
+  const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
+  const lowBattery = deviceStatus.battery <= 20;
+  const pairingIssue = deviceStatus.pairingStatus !== 'Aligned';
+  const activeAlerts = [
+    deviceStatus.connected && lowBattery ? 'Low battery detected' : null,
+    deviceStatus.connected && pairingIssue ? 'Pairing needs alignment' : null,
+    stats.severity === 'danger' ? 'Elevated snoring risk detected' : null,
+  ].filter(Boolean) as string[];
 
   const severityOptions: SimulatedSeverity[] = ['normal', 'bad', 'danger'];
   const settingsOptions = ['Pairing PIN', 'Bluetooth', 'Notifications'];
@@ -318,7 +348,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
                 </View>
                 <View style={styles.deviceInfoRow}>
                   <Text style={styles.deviceLabel}>Battery</Text>
-                  <Text style={styles.deviceValue}>{deviceStatus.battery}</Text>
+                  <Text style={styles.deviceValue}>{deviceStatus.battery}%</Text>
+                </View>
+                <View style={styles.deviceInfoRow}>
+                  <Text style={styles.deviceLabel}>Pairing</Text>
+                  <Text style={styles.deviceValue}>{deviceStatus.pairingStatus}</Text>
                 </View>
                 <View style={styles.deviceInfoRow}>
                   <Text style={styles.deviceLabel}>Last Seen</Text>
@@ -335,6 +369,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           </TouchableOpacity>
         </Modal>
 
+
+        {activeAlerts.length > 0 ? (
+          <View style={styles.alertBanner}>
+            <FontAwesome5 name="exclamation-triangle" size={15} color="#fbbf24" style={{ marginRight: 8 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.alertTitle}>System Alert</Text>
+              <Text style={styles.alertText}>{activeAlerts.join(' • ')}</Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.simulatorSection}>
           <Text style={styles.simulatorLabel}>Simulate Severity</Text>
@@ -423,11 +467,45 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
               <StatsCard label="Avg. Duration" value={stats.averageDuration} icon="clock" unit=" sec" />
               <StatsCard label="Interventions" value={stats.interventionCount} icon="wind" />
               <StatsCard label="Peak Hour" value={moment(stats.peakHour, 'H').format('hA')} icon="moon" />
+              <StatsCard
+                label="Intervention Success"
+                value={`${Math.round(interventionMetrics.successRatio * 100)}%`}
+                icon="check-double"
+                severity={interventionMetrics.trend === 'improving' ? 'normal' : interventionMetrics.trend === 'worsening' ? 'danger' : 'bad'}
+              />
             </View>
 
             {/* Chart */}
             <View style={styles.chartSection}>
               <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
+            </View>
+
+            <View style={styles.hourlySection}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.panelHeader}>Hourly Snore Activity</Text>
+                <Text style={styles.sectionHint}>Bar chart of nightly event peaks</Text>
+              </View>
+              <View style={styles.hourlyChart}>
+                {Array.from({ length: 24 }, (_, hour) => {
+                  const count = dashboardData.allData.filter((event) => moment(event.timestamp).hour() === hour).length;
+                  const targetHeight = Math.max(8, count * 5);
+                  const animatedHeight = barAnimations.current[hour]?.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, targetHeight],
+                  }) ?? targetHeight;
+                  const animatedOpacity = barAnimations.current[hour]?.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.3, 1],
+                  }) ?? 1;
+
+                  return (
+                    <View key={hour} style={styles.hourlyBarColumn}>
+                      <Animated.View style={[styles.hourlyBar, { height: animatedHeight, opacity: animatedOpacity }]} />
+                      <Text style={styles.hourlyLabel}>{moment().hour(hour).format('hA')}</Text>
+                    </View>
+                  );
+                })}
+              </View>
             </View>
 
             {/* Monthly Trend */}
@@ -716,6 +794,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   simulatorSection: { paddingHorizontal: 20, marginBottom: 16 },
+  alertBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginHorizontal: 20,
+    marginBottom: 14,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#f59e0b22',
+    borderWidth: 1,
+    borderColor: '#f59e0b55',
+  },
+  alertTitle: { fontSize: 12, fontWeight: '700', color: '#fbbf24', marginBottom: 2 },
+  alertText: { fontSize: 12, color: '#fde68a', lineHeight: 18 },
   simulatorLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   dropdownButton: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -737,6 +828,14 @@ const styles = StyleSheet.create({
   tabTextActive: { color: '#3b82f6' },
   metricsSection: { paddingHorizontal: 20, marginBottom: 20 },
   chartSection: { paddingHorizontal: 20, marginBottom: 20 },
+  hourlySection: { marginHorizontal: 20, marginBottom: 20, padding: 14, borderRadius: 14, backgroundColor: '#2d2d44', borderWidth: 1, borderColor: '#3d3d5c' },
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  panelHeader: { fontSize: 14, fontWeight: '700', color: '#ffffff' },
+  sectionHint: { fontSize: 11, color: '#9ca3af' },
+  hourlyChart: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', minHeight: 140 },
+  hourlyBarColumn: { flex: 1, alignItems: 'center', marginHorizontal: 1 },
+  hourlyBar: { width: '100%', maxWidth: 8, borderRadius: 999, backgroundColor: '#3b82f6', minHeight: 8 },
+  hourlyLabel: { fontSize: 9, color: '#9ca3af', marginTop: 6 },
   recommendationSection: { paddingHorizontal: 20, marginBottom: 16 },
   logsSection: { paddingHorizontal: 20, marginBottom: 20 },
   settingsCard: { backgroundColor: '#2d2d44', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#3d3d5c' },

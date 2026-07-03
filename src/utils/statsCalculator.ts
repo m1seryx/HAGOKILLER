@@ -119,6 +119,38 @@ export const calculateMonthlyStats = (events: SleepEvent[], month: string): Mont
   };
 };
 
+export interface InterventionEffectiveness {
+  totalTriggers: number;
+  successfulAdjustments: number;
+  successRatio: number;
+  trend: 'improving' | 'stable' | 'worsening';
+}
+
+export const calculateInterventionEffectiveness = (events: SleepEvent[]): InterventionEffectiveness => {
+  const triggeredEvents = events.filter((event) => event.interventionTriggered);
+  const totalTriggers = triggeredEvents.length;
+  const successfulAdjustments = triggeredEvents.filter((event) => {
+    const shorterDuration = event.duration <= 45;
+    const lowerSeverity = event.severity !== 'high';
+    return shorterDuration || lowerSeverity;
+  }).length;
+  const successRatio = totalTriggers > 0 ? successfulAdjustments / totalTriggers : 0;
+  let trend: 'improving' | 'stable' | 'worsening' = 'stable';
+
+  if (successRatio >= 0.6) {
+    trend = 'improving';
+  } else if (successRatio <= 0.25) {
+    trend = 'worsening';
+  }
+
+  return {
+    totalTriggers,
+    successfulAdjustments,
+    successRatio,
+    trend,
+  };
+};
+
 export const getHourLabel = (hour: number): string => {
   return `${hour.toString().padStart(2, '0')}:00`;
 };
