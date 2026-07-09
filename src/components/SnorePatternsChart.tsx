@@ -22,17 +22,16 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
     });
 
     const eventCounts = weeklyData.map((d) => d.totalSnoreEvents);
-    const avgDurations = weeklyData.map((d) => d.averageDuration / 10); // Scale down for visibility
 
     return {
       labels,
       datasets: [
         {
           data: eventCounts,
-          strokeWidth: 2,
-          color: (opacity = 1) => `rgba(59, 130, 246, ${opacity})`, // Blue
-          fillShadowGradient: 'rgba(59, 130, 246, 0.2)',
-          fillShadowGradientOpacity: 1,
+          strokeWidth: 3,
+          color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`, // Electric Indigo
+          fillShadowGradient: '#6366f1',
+          fillShadowGradientOpacity: 0.15,
         },
       ],
       legend: ['Snore Events'],
@@ -61,67 +60,73 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
     };
   }, [weeklyData]);
 
-  const chartWidth = Dimensions.get('window').width - 40;
+  const chartWidth = Dimensions.get('window').width - 48; // Adjusted padding
+
+  const commonChartConfig = {
+    backgroundColor: '#161722',
+    backgroundGradientFrom: '#161722',
+    backgroundGradientTo: '#1e1f2f',
+    decimalPlaces: 0,
+    color: (opacity = 1) => `rgba(156, 163, 175, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(156, 163, 175, 0.8)`,
+    style: {
+      borderRadius: 16,
+    },
+    propsForDots: {
+      r: '5',
+      strokeWidth: '2.5',
+      stroke: '#6366f1',
+      fill: '#0a0b10',
+    },
+    propsForBackgroundLines: {
+      strokeDasharray: '4',
+      stroke: 'rgba(255, 255, 255, 0.04)',
+    },
+  };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>{title}</Text>
+      <View style={styles.header}>
+        <View style={styles.titleIndicator} />
+        <Text style={styles.title}>{title}</Text>
+      </View>
 
-      {chartType === 'line' ? (
-        <LineChart
-          data={chartData}
-          width={chartWidth}
-          height={220}
-          chartConfig={{
-            backgroundColor: '#1a1a2e',
-            backgroundGradientFrom: '#1a1a2e',
-            backgroundGradientTo: '#2d2d44',
-            decimalPlaces: 0,
-            color: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
-            labelColor: (opacity = 1) => `rgba(156, 163, 175, ${opacity})`,
-            propsForDots: {
-              r: '6',
-              strokeWidth: '2',
-              stroke: '#3b82f6',
-              fill: '#1a1a2e',
-            },
-            propsForBackgroundLines: {
-              strokeDasharray: '0',
-              stroke: `rgba(156, 163, 175, 0.1)`,
-            },
-          }}
-          style={styles.chart}
-          withDots={true}
-          withInnerLines={true}
-          withOuterLines={true}
-          withVerticalLabels={true}
-        />
-      ) : (
-        <BarChart
-          data={barChartData}
-          width={chartWidth}
-          height={220}
-          chartConfig={{
-            backgroundColor: '#1a1a2e',
-            backgroundGradientFrom: '#1a1a2e',
-            backgroundGradientTo: '#2d2d44',
-            decimalPlaces: 0,
-            color: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
-            labelColor: (opacity = 1) => `rgba(156, 163, 175, ${opacity})`,
-            propsForBackgroundLines: {
-              strokeDasharray: '0',
-              stroke: `rgba(156, 163, 175, 0.1)`,
-            },
-          }}
-          style={styles.chart}
-        />
-      )}
+      <View style={styles.chartWrapper}>
+        {chartType === 'line' ? (
+          <LineChart
+            data={chartData}
+            width={chartWidth}
+            height={200}
+            chartConfig={commonChartConfig}
+            style={styles.chart}
+            withDots={true}
+            withInnerLines={true}
+            withOuterLines={true}
+            withVerticalLabels={true}
+            bezier
+          />
+        ) : (
+          <BarChart
+            data={barChartData}
+            width={chartWidth}
+            height={200}
+            yAxisLabel=""
+            yAxisSuffix=""
+            chartConfig={commonChartConfig}
+            style={styles.chart}
+            withInnerLines={true}
+            fromZero
+          />
+        )}
+      </View>
 
       <View style={styles.legend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendColor, { backgroundColor: '#3b82f6' }]} />
-          <Text style={styles.legendLabel}>Snore Events</Text>
+          <View style={[styles.legendColor, { backgroundColor: '#6366f1' }]} />
+          <Text style={styles.legendLabel}>Snore Events (Count)</Text>
         </View>
+        <View style={styles.legendDivider} />
+        <Text style={styles.legendHelp}>Pulse shows severity spikes</Text>
       </View>
     </View>
   );
@@ -129,45 +134,79 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 12,
+    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#2d2d44',
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  titleIndicator: {
+    width: 4,
+    height: 14,
+    backgroundColor: '#6366f1',
+    borderRadius: 2,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
     color: '#ffffff',
-    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  chartWrapper: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   chart: {
-    marginVertical: 0,
-    borderRadius: 8,
+    marginVertical: 4,
+    borderRadius: 12,
   },
   legend: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
+    justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#2d2d44',
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 20,
   },
   legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     marginRight: 6,
   },
   legendLabel: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#9ca3af',
+    fontWeight: '500',
+  },
+  legendDivider: {
+    width: 1,
+    height: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  legendHelp: {
+    fontSize: 10,
+    color: '#6b7280',
+    fontStyle: 'italic',
   },
 });

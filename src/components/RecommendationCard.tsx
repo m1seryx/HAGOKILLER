@@ -19,52 +19,61 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: severityColor + '20', borderLeftColor: severityColor }]}>
-        <FontAwesome5 name={severityIcons[data.severityLevel]} size={28} color={severityColor} style={styles.icon} />
+      <View style={[styles.header, { borderLeftColor: severityColor }]}>
+        <View style={[styles.headerIconContainer, { backgroundColor: severityColor + '20' }]}>
+          <FontAwesome5 name={severityIcons[data.severityLevel]} size={20} color={severityColor} />
+        </View>
         <View style={styles.headerContent}>
-          <Text style={[styles.headerTitle, { color: severityColor }]}>Sleep Health Status</Text>
+          <Text style={[styles.headerTitle, { color: severityColor }]}>Sleep Health Assessment</Text>
           <Text style={styles.trendMessage}>{data.trendMessage}</Text>
         </View>
       </View>
 
-      {/* Main Recommendation */}
+      {/* Main Recommendation Text */}
       <View style={styles.mainRecommendation}>
         <Text style={styles.mainText}>{data.recommendation}</Text>
+        <Text style={[styles.mainText, { marginTop: 8, fontStyle: 'italic', color: '#9ca3af', fontSize: 11 }]}>
+          If symptoms persist, consult your doctor.
+        </Text>
       </View>
 
-      {/* Action Items */}
+      {/* Action Items List */}
       {data.actionItems.length > 0 && (
         <View style={styles.actionsContainer}>
-          <Text style={styles.actionsTitle}>Recommended Actions:</Text>
+          <Text style={styles.actionsTitle}>Therapeutic Action Items</Text>
           {data.actionItems.map((item, index) => (
             <View key={index} style={styles.actionItem}>
-              <FontAwesome5 name="circle" size={6} color="#6b7280" style={styles.bullet} solid />
+              <View style={styles.checkWrapper}>
+                <FontAwesome5 name="check" size={9} color="#6366f1" />
+              </View>
               <Text style={styles.actionText}>{item}</Text>
             </View>
           ))}
         </View>
       )}
 
-      {/* Warning Banner for Danger Level */}
+      {/* Warning Alert Panel */}
       {data.severityLevel === 'danger' && (
         <View style={styles.warningBanner}>
-          <FontAwesome5 name="exclamation-triangle" size={18} color="#f59e0b" style={styles.warningIcon} />
+          <View style={styles.warningIconWrapper}>
+            <FontAwesome5 name="exclamation-triangle" size={14} color="#ef4444" />
+          </View>
           <View style={styles.warningContent}>
-            <Text style={styles.warningTitle}>Important Notice</Text>
+            <Text style={styles.warningTitle}>Medical Disclaimer</Text>
             <Text style={styles.warningText}>
-              This information is not a medical diagnosis. Please consult with a healthcare
-              professional for proper evaluation and treatment.
+              This report is powered by sensor-based classification and is not a medical diagnostic tool. 
+              Consult a certified physician or ENT specialist for sleep disorder evaluation.
             </Text>
           </View>
         </View>
       )}
 
-      {/* Footer Message */}
+      {/* Sleep Tech Tip Footer */}
       <View style={styles.footer}>
         <View style={styles.footerRow}>
-          <FontAwesome5 name="lightbulb" size={12} color="#3b82f6" style={styles.footerIcon} solid />
+          <FontAwesome5 name="info-circle" size={12} color="#6366f1" style={styles.footerIcon} />
           <Text style={styles.footerText}>
-            Continue using your Smart Pillow to track long-term trends and monitor your sleep health.
+            Keep your IoT Smart Pillow paired over BLE to collect ongoing sleep patterns and update daily scores.
           </Text>
         </View>
       </View>
@@ -74,36 +83,142 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#1a1a2e', borderRadius: 12, overflow: 'hidden',
-    borderWidth: 1, borderColor: '#2d2d44', marginBottom: 16,
+    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  header: { flexDirection: 'row', alignItems: 'center', padding: 16, borderLeftWidth: 4 },
-  icon: { marginRight: 12 },
-  headerContent: { flex: 1 },
-  headerTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
-  trendMessage: { fontSize: 12, color: '#9ca3af', fontStyle: 'italic' },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderLeftWidth: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.01)',
+  },
+  headerIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  headerContent: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  trendMessage: {
+    fontSize: 12,
+    color: '#9ca3af',
+    fontWeight: '500',
+  },
   mainRecommendation: {
-    paddingHorizontal: 16, paddingVertical: 12,
-    backgroundColor: '#2d2d44', borderBottomWidth: 1, borderBottomColor: '#3d3d5c',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
   },
-  mainText: { fontSize: 14, color: '#e5e7eb', lineHeight: 20 },
-  actionsContainer: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#2d2d44' },
-  actionsTitle: { fontSize: 13, fontWeight: '600', color: '#d1d5db', marginBottom: 12 },
-  actionItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
-  bullet: { marginTop: 5, marginRight: 10, width: 10 },
-  actionText: { flex: 1, fontSize: 13, color: '#d1d5db', lineHeight: 18 },
+  mainText: {
+    fontSize: 13,
+    color: '#e5e7eb',
+    lineHeight: 18,
+  },
+  actionsContainer: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  actionsTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 12,
+  },
+  actionItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  checkWrapper: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 1,
+    marginRight: 10,
+  },
+  actionText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#d1d5db',
+    lineHeight: 18,
+  },
   warningBanner: {
-    flexDirection: 'row', backgroundColor: '#dc262640',
-    borderTopWidth: 1, borderTopColor: '#ef4444',
-    borderBottomWidth: 1, borderBottomColor: '#2d2d44',
-    padding: 12, alignItems: 'flex-start',
+    flexDirection: 'row',
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(239, 68, 68, 0.15)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    padding: 14,
+    alignItems: 'flex-start',
+    gap: 10,
   },
-  warningIcon: { marginRight: 10, marginTop: 2 },
-  warningContent: { flex: 1 },
-  warningTitle: { fontSize: 12, fontWeight: '700', color: '#ef4444', marginBottom: 4 },
-  warningText: { fontSize: 11, color: '#fca5a5', lineHeight: 16 },
-  footer: { padding: 12, backgroundColor: '#0f172a' },
-  footerRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  footerIcon: { marginRight: 8, marginTop: 2 },
-  footerText: { flex: 1, fontSize: 12, color: '#9ca3af', lineHeight: 16 },
+  warningIconWrapper: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  warningContent: {
+    flex: 1,
+  },
+  warningTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ef4444',
+    marginBottom: 3,
+  },
+  warningText: {
+    fontSize: 11,
+    color: 'rgba(239, 68, 68, 0.8)',
+    lineHeight: 16,
+  },
+  footer: {
+    padding: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+  },
+  footerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  footerIcon: {
+    marginRight: 8,
+  },
+  footerText: {
+    flex: 1,
+    fontSize: 11,
+    color: '#6b7280',
+    lineHeight: 15,
+  },
 });

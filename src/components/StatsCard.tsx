@@ -14,23 +14,46 @@ interface StatsCardProps {
 export const StatsCard: React.FC<StatsCardProps> = ({
   label, value, icon = 'chart-bar', severity, unit = '',
 }) => {
-  const iconColor = severity ? getSeverityColor(severity) : '#3b82f6';
+  const isSeverity = !!severity;
+  const severityColor = severity ? getSeverityColor(severity) : '#6366f1';
+  const displayLabel = severity ? getSeverityLabel(severity) : '';
 
   return (
-    <View style={[styles.card, {
-      backgroundColor: severity ? getSeverityColor(severity) + '26' : '#2d2d44',
-      borderLeftColor: severity ? getSeverityColor(severity) : '#3b82f6',
-    }]}>
+    <View style={[
+      styles.card,
+      isSeverity && {
+        borderColor: severityColor + '40',
+        borderWidth: 1.5,
+      }
+    ]}>
+      {/* Dynamic top-left color bar for visual cue */}
+      <View style={[styles.glowBar, { backgroundColor: severityColor }]} />
+
       <View style={styles.header}>
-        <FontAwesome5 name={icon} size={16} color={iconColor} style={styles.icon} />
-        <Text style={styles.label}>{label}</Text>
-      </View>
-      <View style={styles.content}>
-        <Text style={styles.value}>
-          {value}
-          {unit && <Text style={styles.unit}>{unit}</Text>}
+        <View style={[
+          styles.iconContainer, 
+          { backgroundColor: severityColor + '1a' }
+        ]}>
+          <FontAwesome5 name={icon} size={15} color={severityColor} />
+        </View>
+        <Text style={styles.label} numberOfLines={1} adjustsFontSizeToFit>
+          {label}
         </Text>
-        {severity && <Text style={[styles.severityLabel, { color: getSeverityColor(severity) }]}>{getSeverityLabel(severity)}</Text>}
+      </View>
+
+      <View style={styles.content}>
+        <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
+          {value}
+          {unit ? <Text style={styles.unit}>{unit}</Text> : null}
+        </Text>
+        
+        {isSeverity && (
+          <View style={[styles.severityBadge, { backgroundColor: severityColor + '20' }]}>
+            <Text style={[styles.severityText, { color: severityColor }]}>
+              {displayLabel}
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -38,16 +61,79 @@ export const StatsCard: React.FC<StatsCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 12, padding: 16, marginBottom: 12,
-    borderLeftWidth: 4, borderLeftColor: '#3b82f6',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1, shadowRadius: 3.84, elevation: 5,
+    flex: 1,
+    minWidth: '47%', // Allows side-by-side grid layout
+    margin: 4,
+    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    position: 'relative',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
   },
-  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
-  icon: { marginRight: 8, width: 20 },
-  label: { fontSize: 12, color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  content: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
-  value: { fontSize: 28, fontWeight: 'bold', color: '#ffffff' },
-  unit: { fontSize: 14, color: '#9ca3af', marginLeft: 4 },
-  severityLabel: { fontSize: 11, fontWeight: '700', paddingHorizontal: 8, paddingVertical: 2 },
+  glowBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    opacity: 0.9,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 8,
+  },
+  iconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  label: {
+    fontSize: 11,
+    color: '#9ca3af',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    flex: 1,
+  },
+  content: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  value: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.5,
+  },
+  unit: {
+    fontSize: 13,
+    color: '#9ca3af',
+    fontWeight: '500',
+  },
+  severityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    alignSelf: 'center',
+  },
+  severityText: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
 });

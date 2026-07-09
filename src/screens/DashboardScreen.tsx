@@ -6,13 +6,14 @@ import {
 import moment from 'moment';
 import { DashboardData, DailyStats, MonthlyStats } from '../types';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
-import { getRecommendations, getSeverityColor } from '../utils/recommendations';
+import { getRecommendations, getSeverityColor, getSeverityLabel } from '../utils/recommendations';
 import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
 import { RecommendationCard } from '../components/RecommendationCard';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { calculateDashboardData, MockBLEService } from '../services/mockBLEService';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 
 type SimulatedSeverity = 'normal' | 'bad' | 'danger';
 
@@ -40,6 +41,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
     to: moment().format('YYYY-MM-DD'),
   });
 
+  const navigation = useNavigation<any>();
   const bleService = useRef(new MockBLEService()).current;
 
   useEffect(() => { loadData(); }, []);
@@ -72,10 +74,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.loadingContainer}>
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={styles.loadingText}>Loading sleep data...</Text>
+          <ActivityIndicator size="large" color="#6366f1" />
+          <Text style={styles.loadingText}>Syncing biosensor data...</Text>
         </View>
       </SafeAreaView>
     );
@@ -83,15 +85,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
 
   if (!dashboardData) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.loadingContainer}>
         <View style={styles.centerContent}>
-          <Text style={styles.errorText}>Failed to load data</Text>
+          <Text style={styles.errorText}>Connection to Smart Pillow failed</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Override severity based on simulator
   const overrideSeverity = (stats: DailyStats): DailyStats => ({
     ...stats,
     totalSnoreEvents: SEVERITY_EVENTS[simulatedSeverity],
@@ -105,12 +106,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
       const d = moment(e.timestamp);
       return d.isSameOrAfter(from, 'day') && d.isSameOrBefore(to, 'day');
     });
-    const days = to.diff(from, 'days') + 1;
     const totalSnoreEvents = rangeEvents.length;
-    const averageDuration =
-      totalSnoreEvents > 0
-        ? Math.round(rangeEvents.reduce((s, e) => s + e.duration, 0) / totalSnoreEvents)
-        : 0;
+    const averageDuration = totalSnoreEvents > 0
+      ? Math.round(rangeEvents.reduce((s, e) => s + e.duration, 0) / totalSnoreEvents)
+      : 0;
     const interventionCount = rangeEvents.filter((e) => e.interventionTriggered).length;
     return {
       date: dateRange.to,
@@ -161,13 +160,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
     }
   };
 
-  // Build chart data based on active filter — uses real mock data, severity only affects color
   const getChartData = (): { data: DailyStats[]; title: string } => {
     switch (activeFilter) {
       case 'today':
-        return { data: [dashboardData.today], title: "Today's Pattern" };
+        return { data: [dashboardData.today], title: "Today's Events" };
       case 'week':
-        return { data: dashboardData.thisWeek, title: '7-Day Snoring Pattern' };
+        return { data: dashboardData.thisWeek, title: '7-Day Trend' };
       case 'month': {
         const now = moment();
         const monthDays: DailyStats[] = [];
@@ -175,7 +173,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           const date = now.clone().subtract(i, 'days').format('YYYY-MM-DD');
           monthDays.push(calculateDailyStats(dashboardData.allData, date));
         }
-        return { data: monthDays.filter((_, i) => i % 5 === 0 || i === 29), title: '30-Day Snoring Pattern' };
+        return { data: monthDays.filter((_, i) => i % 5 === 0 || i === 29), title: '30-Day Overview' };
       }
       case 'range': {
         const from = moment(dateRange.from);
@@ -189,7 +187,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
         const step = Math.max(1, Math.floor(days.length / 7));
         return {
           data: days.filter((_, i) => i % step === 0 || i === days.length - 1),
-          title: `${dateRange.from} → ${dateRange.to}`,
+          title: `Custom: ${dateRange.from} to ${dateRange.to}`,
         };
       }
     }
@@ -202,84 +200,73 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
 
   const severityOptions: SimulatedSeverity[] = ['normal', 'bad', 'danger'];
   const severityLabels: Record<SimulatedSeverity, string> = {
-    normal: 'Normal (0–3 events/day)',
-    bad: 'Bad (4–10 events/day)',
-    danger: 'Danger (11+ events/day)',
+    normal: 'Normal (0–3 events)',
+    bad: 'Elevated (4–10 events)',
+    danger: 'Critical (11+ events)',
   };
+
+  const getInitials = (name: string) => name ? name.charAt(0).toUpperCase() : 'U';
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
+        {/* Header Section */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>Hello, {userName} <FontAwesome5 name="hand-paper" size={20} color="#f59e0b" /></Text>
-            <View style={styles.statusRow}>
-              <Text style={styles.statusLabel}>Snoring Status — </Text>
-              <Text style={[styles.statusValue, { color: severityColor }]}>
-                {simulatedSeverity.charAt(0).toUpperCase() + simulatedSeverity.slice(1)}
-              </Text>
-            </View>
-            <Text style={styles.headerSubtitle}>{moment().format('dddd, MMMM D, YYYY')}</Text>
+          <View style={styles.headerTitleArea}>
+            <Text style={styles.greeting}>Good evening, {userName}</Text>
+            <Text style={styles.dateSubtitle}>{moment().format('dddd, MMMM Do')}</Text>
           </View>
-          <View style={[styles.statusBadge, { borderColor: severityColor }]}>
-            <View style={[styles.statusDot, { backgroundColor: severityColor }]} />
-            <Text style={[styles.statusBadgeText, { color: severityColor }]}>
-              {simulatedSeverity.toUpperCase()}
-            </Text>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{getInitials(userName)}</Text>
           </View>
         </View>
 
-        {/* Simulator Dropdown */}
+        {/* BLE Connection Card */}
+        <View style={styles.bleCard}>
+          <View style={styles.bleRow}>
+            <View style={styles.bleIconWrapper}>
+              <FontAwesome5 name="microchip" size={16} color="#3b82f6" />
+            </View>
+            <View style={styles.bleInfo}>
+              <Text style={styles.bleTitle}>HAGOKILLER ESP32</Text>
+              <Text style={styles.bleSubtitle}>Active Connection</Text>
+            </View>
+            <View style={styles.bleStats}>
+              <View style={styles.bleStatBadge}>
+                <FontAwesome5 name="battery-full" size={10} color="#10b981" style={{ marginRight: 4 }} />
+                <Text style={styles.bleStatText}>85%</Text>
+              </View>
+              <View style={styles.bleStatBadge}>
+                <FontAwesome5 name="signal" size={10} color="#3b82f6" style={{ marginRight: 4 }} />
+                <Text style={styles.bleStatText}>Strong</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Simulation / Override Controller */}
         <View style={styles.simulatorSection}>
-          <Text style={styles.simulatorLabel}>Simulate Severity</Text>
           <TouchableOpacity
-            style={[styles.dropdownButton, { borderColor: severityColor }]}
+            style={[styles.dropdownButton, { borderColor: severityColor + '60', backgroundColor: severityColor + '10' }]}
             onPress={() => setDropdownVisible(true)}
+            activeOpacity={0.8}
           >
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-              <FontAwesome5
-                name={simulatedSeverity === 'normal' ? 'check-circle' : simulatedSeverity === 'bad' ? 'exclamation-circle' : 'times-circle'}
-                size={15} color={severityColor} style={{ marginRight: 8 }}
-              />
+              <View style={[styles.simulatorIndicator, { backgroundColor: severityColor }]} />
+              <Text style={[styles.dropdownLabel]}>Simulation Override: </Text>
               <Text style={[styles.dropdownButtonText, { color: severityColor }]}>
                 {severityLabels[simulatedSeverity]}
               </Text>
             </View>
-            <FontAwesome5 name="chevron-down" size={11} color="#9ca3af" />
+            <FontAwesome5 name="chevron-down" size={11} color={severityColor} />
           </TouchableOpacity>
         </View>
 
-        <Modal transparent visible={dropdownVisible} animationType="fade" onRequestClose={() => setDropdownVisible(false)}>
-          <TouchableOpacity style={styles.modalOverlay} onPress={() => setDropdownVisible(false)}>
-            <View style={styles.modalMenu}>
-              <Text style={styles.modalTitle}>Select Severity</Text>
-              {severityOptions.map((opt) => (
-                <TouchableOpacity
-                  key={opt}
-                  style={[styles.modalOption, simulatedSeverity === opt && { backgroundColor: getSeverityColor(opt) + '22' }]}
-                  onPress={() => { setSimulatedSeverity(opt); setDropdownVisible(false); }}
-                >
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <FontAwesome5
-                      name={opt === 'normal' ? 'check-circle' : opt === 'bad' ? 'exclamation-circle' : 'times-circle'}
-                      size={16} color={getSeverityColor(opt)} style={{ marginRight: 10 }}
-                    />
-                    <Text style={[styles.modalOptionText, { color: getSeverityColor(opt) }]}>
-                      {severityLabels[opt]}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </TouchableOpacity>
-        </Modal>
-
         {/* Filter */}
-        <View style={styles.filterWrapper}>
+        <View style={styles.sectionPadding}>
           <StatsFilter
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
@@ -289,205 +276,526 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
         </View>
 
         {/* Tabs */}
-        <View style={styles.tabBar}>
+        <View style={styles.tabContainer}>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'analytics' && styles.tabButtonActive]}
             onPress={() => setActiveTab('analytics')}
+            activeOpacity={0.8}
           >
-            <FontAwesome5 name="chart-bar" size={13} color={activeTab === 'analytics' ? '#3b82f6' : '#6b7280'} style={{ marginRight: 6 }} />
+            <FontAwesome5 name="chart-pie" size={13} color={activeTab === 'analytics' ? '#ffffff' : '#6b7280'} style={{ marginRight: 6 }} />
             <Text style={[styles.tabText, activeTab === 'analytics' && styles.tabTextActive]}>Analytics</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'recommendations' && styles.tabButtonActive]}
             onPress={() => setActiveTab('recommendations')}
+            activeOpacity={0.8}
           >
-            <FontAwesome5 name="lightbulb" size={13} color={activeTab === 'recommendations' ? '#3b82f6' : '#6b7280'} style={{ marginRight: 6 }} solid />
-            <Text style={[styles.tabText, activeTab === 'recommendations' && styles.tabTextActive]}>Recommendations</Text>
+            <FontAwesome5 name="stethoscope" size={13} color={activeTab === 'recommendations' ? '#ffffff' : '#6b7280'} style={{ marginRight: 6 }} />
+            <Text style={[styles.tabText, activeTab === 'recommendations' && styles.tabTextActive]}>Assessment</Text>
           </TouchableOpacity>
         </View>
 
         {activeTab === 'analytics' ? (
           <>
-            {/* Key Metrics */}
-            <View style={styles.metricsSection}>
-              <StatsCard label="Snoring Events" value={stats.totalSnoreEvents} icon="volume-up" severity={stats.severity} />
-              <StatsCard label="Avg. Duration" value={stats.averageDuration} icon="clock" unit=" sec" />
-              <StatsCard label="Interventions" value={stats.interventionCount} icon="wind" />
-              <StatsCard label="Peak Hour" value={moment(stats.peakHour, 'H').format('hA')} icon="moon" />
+            {/* Grid Metrics Section */}
+            <View style={styles.metricsGrid}>
+              <StatsCard label="Snore Events" value={stats.totalSnoreEvents} icon="wave-square" severity={stats.severity} />
+              <StatsCard label="Avg. Duration" value={stats.averageDuration} icon="stopwatch" unit="s" />
+              <StatsCard label="Pillow Inflations" value={stats.interventionCount} icon="wind" />
+              <StatsCard label="Peak Hour" value={moment(stats.peakHour, 'H').format('h A')} icon="moon" />
             </View>
 
-            {/* Chart */}
-            <View style={styles.chartSection}>
+            {activeFilter === 'today' && (
+              <View style={styles.sectionPadding}>
+                <TouchableOpacity 
+                  style={styles.detailButton} 
+                  onPress={() => navigation.navigate('NightDetail', { date: stats.date })}
+                >
+                  <Text style={styles.detailButtonText}>View Nightly Detail Timeline</Text>
+                  <FontAwesome5 name="arrow-right" size={12} color="#ffffff" style={{ marginLeft: 8 }} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Chart Section */}
+            <View style={styles.sectionPadding}>
               <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
             </View>
 
-            {/* Monthly Trend */}
-            <View style={styles.trendSection}>
-          <Text style={styles.trendLabel}>Monthly Trend</Text>
-          <View style={styles.trendCard}>
-            {/* Trend summary badge */}
-            <View style={[styles.trendSummary, {
-              backgroundColor: trend === 'improving' ? '#10b98120' : trend === 'worsening' ? '#ef444420' : '#f59e0b20',
-            }]}>
-              <FontAwesome5
-                name={trend === 'improving' ? 'chart-line' : trend === 'worsening' ? 'exclamation-triangle' : 'equals'}
-                size={14}
-                color={trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b'}
-                style={{ marginRight: 8 }}
-              />
-              <Text style={[styles.trendSummaryText, {
-                color: trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b',
-              }]}>
-                {trend === 'improving' ? 'Improving over time' : trend === 'worsening' ? 'Worsening over time' : 'Stable pattern'}
-              </Text>
-            </View>
-
-            {/* Month rows */}
-            {monthHistory.map((m, i) => {
-              const prev = monthHistory[i - 1];
-              const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : null;
-              const mColor = getSeverityColor(m.severity);
-              return (
-                <View key={m.month} style={styles.monthRow}>
-                  <View style={styles.monthLeft}>
-                    <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM YYYY')}</Text>
-                    <View style={[styles.monthSeverityBadge, { backgroundColor: mColor + '22' }]}>
-                      <View style={[styles.monthDot, { backgroundColor: mColor }]} />
-                      <Text style={[styles.monthSeverityText, { color: mColor }]}>
-                        {m.severity.charAt(0).toUpperCase() + m.severity.slice(1)}
-                      </Text>
-                    </View>
+            {/* Trend History */}
+            <View style={styles.sectionPadding}>
+              <Text style={styles.sectionTitle}>Historical Trend</Text>
+              <View style={styles.trendCard}>
+                
+                <View style={[styles.trendSummary, {
+                  backgroundColor: trend === 'improving' ? 'rgba(16, 185, 129, 0.1)' : trend === 'worsening' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)',
+                }]}>
+                  <View style={styles.trendIconBox}>
+                    <FontAwesome5
+                      name={trend === 'improving' ? 'arrow-trend-down' : trend === 'worsening' ? 'arrow-trend-up' : 'minus'}
+                      size={12}
+                      color={trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#6366f1'}
+                    />
                   </View>
-                  <View style={styles.monthRight}>
-                    <Text style={styles.monthEvents}>{m.totalSnoreEvents}</Text>
-                    <Text style={styles.monthEventsLabel}>events</Text>
-                    {change !== null && (
-                      <View style={styles.monthChange}>
-                        <FontAwesome5
-                          name={change < 0 ? 'arrow-down' : change > 0 ? 'arrow-up' : 'minus'}
-                          size={10}
-                          color={change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b'}
-                        />
-                        <Text style={[styles.monthChangeText, {
-                          color: change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b',
-                        }]}>
-                          {Math.abs(change)}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
+                  <Text style={[styles.trendSummaryText, {
+                    color: trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#818cf8',
+                  }]}>
+                    {trend === 'improving' ? 'Patterns are improving' : trend === 'worsening' ? 'Condition is worsening' : 'Patterns are stable'}
+                  </Text>
                 </View>
-              );
-            })}
 
-            {/* Avg duration + interventions summary */}
-            <View style={styles.trendFooter}>
-              <View style={styles.trendStat}>
-                <FontAwesome5 name="clock" size={11} color="#6b7280" style={{ marginRight: 4 }} />
-                <Text style={styles.trendStatText}>Avg duration: {dashboardData.thisMonth.averageDuration}s</Text>
-              </View>
-              <View style={styles.trendStat}>
-                <FontAwesome5 name="wind" size={11} color="#6b7280" style={{ marginRight: 4 }} />
-                <Text style={styles.trendStatText}>Interventions: {dashboardData.thisMonth.interventionCount}</Text>
+                {monthHistory.map((m, i) => {
+                  const prev = monthHistory[i - 1];
+                  const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : null;
+                  const mColor = getSeverityColor(m.severity);
+                  return (
+                    <View key={m.month} style={styles.monthRow}>
+                      <View style={styles.monthLeft}>
+                        <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM')}</Text>
+                        <View style={[styles.monthSeverityBadge, { backgroundColor: mColor + '1a' }]}>
+                          <Text style={[styles.monthSeverityText, { color: mColor }]}>
+                            {getSeverityLabel(m.severity)}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.monthRight}>
+                        <Text style={styles.monthEvents}>{m.totalSnoreEvents}</Text>
+                        <Text style={styles.monthEventsLabel}>total</Text>
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             </View>
-          </View>
-          </View>
           </>
         ) : (
-          <View style={styles.recommendationSection}>
+          <View style={styles.sectionPadding}>
             <RecommendationCard data={recommendations} />
           </View>
         )}
 
         {/* Footer */}
-        <View style={styles.footerInfo}>
-          <View style={styles.footerRow}>
-            <FontAwesome5 name="sync-alt" size={11} color="#9ca3af" style={{ marginRight: 6, marginTop: 1 }} />
-            <Text style={styles.footerText}>
-              Last synced: {moment(dashboardData.allData[0]?.timestamp).fromNow()}
-            </Text>
-          </View>
-          <Text style={styles.disclaimerText}>
-            This app provides general monitoring only. For medical concerns, consult a healthcare professional.
+        <View style={styles.footerContainer}>
+          <FontAwesome5 name="sync" size={10} color="#6b7280" style={{ marginRight: 6 }} />
+          <Text style={styles.footerText}>
+            System synced: {moment(dashboardData.allData[0]?.timestamp).fromNow()}
           </Text>
         </View>
 
-        <View style={{ height: 20 }} />
+        {/* System Logs Button */}
+        <View style={styles.sectionPadding}>
+          <TouchableOpacity
+            style={styles.logsButton}
+            onPress={() => navigation.navigate('Logs' as never, { events: dashboardData.allData } as never)}
+            activeOpacity={0.8}
+          >
+            <FontAwesome5 name="terminal" size={13} color="#6366f1" style={{ marginRight: 10 }} />
+            <Text style={styles.logsButtonText}>View Historical Logs</Text>
+            <FontAwesome5 name="chevron-right" size={11} color="#6b7280" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Simulator Modal */}
+      <Modal transparent visible={dropdownVisible} animationType="fade" onRequestClose={() => setDropdownVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} onPress={() => setDropdownVisible(false)} activeOpacity={1}>
+          <View style={styles.modalMenu}>
+            <Text style={styles.modalTitle}>Override Sensor Data</Text>
+            {severityOptions.map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                style={[styles.modalOption, simulatedSeverity === opt && { backgroundColor: getSeverityColor(opt) + '15' }]}
+                onPress={() => { setSimulatedSeverity(opt); setDropdownVisible(false); }}
+              >
+                <View style={styles.modalOptionContent}>
+                  <View style={[styles.simulatorIndicator, { backgroundColor: getSeverityColor(opt) }]} />
+                  <Text style={[styles.modalOptionText, { color: getSeverityColor(opt) }]}>
+                    {severityLabels[opt]}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
-  centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { fontSize: 14, color: '#9ca3af', marginTop: 12 },
-  errorText: { fontSize: 16, color: '#ef4444' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#0a0b10' // Space midnight background
+  },
+  loadingContainer: { 
+    flex: 1, 
+    backgroundColor: '#0a0b10', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  centerContent: { 
+    alignItems: 'center' 
+  },
+  loadingText: { 
+    fontSize: 14, 
+    color: '#6366f1', 
+    marginTop: 16, 
+    fontWeight: '600', 
+    letterSpacing: 0.5 
+  },
+  errorText: { 
+    fontSize: 14, 
+    color: '#ef4444' 
+  },
+  
+  // Header
   header: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'flex-start', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12,
+    flexDirection: 'row', 
+    justifyContent: 'space-between',
+    alignItems: 'center', 
+    paddingHorizontal: 24, 
+    paddingTop: 24, 
+    paddingBottom: 20,
   },
-  greeting: { fontSize: 24, fontWeight: '700', color: '#ffffff', marginBottom: 4 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  statusLabel: { fontSize: 14, color: '#9ca3af' },
-  statusValue: { fontSize: 14, fontWeight: '700' },
-  headerSubtitle: { fontSize: 12, color: '#6b7280' },
-  statusBadge: {
-    flexDirection: 'row', alignItems: 'center', borderWidth: 1,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+  headerTitleArea: {
+    flex: 1,
   },
-  statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  statusBadgeText: { fontSize: 11, fontWeight: '700' },
-  simulatorSection: { paddingHorizontal: 20, marginBottom: 16 },
-  simulatorLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  greeting: { 
+    fontSize: 24, 
+    fontWeight: '800', 
+    color: '#ffffff', 
+    marginBottom: 4, 
+    letterSpacing: 0.5 
+  },
+  dateSubtitle: { 
+    fontSize: 13, 
+    color: '#9ca3af', 
+    fontWeight: '500' 
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(99, 102, 241, 0.15)',
+    borderWidth: 1.5,
+    borderColor: '#6366f1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#6366f1',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  avatarText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#ffffff',
+  },
+
+  // BLE Card
+  bleCard: {
+    marginHorizontal: 24,
+    marginBottom: 20,
+    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  bleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bleIconWrapper: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(59, 130, 246, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  bleInfo: {
+    flex: 1,
+  },
+  bleTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#e5e7eb',
+    marginBottom: 2,
+    letterSpacing: 0.5,
+  },
+  bleSubtitle: {
+    fontSize: 11,
+    color: '#10b981',
+    fontWeight: '600',
+  },
+  bleStats: {
+    alignItems: 'flex-end',
+    gap: 6,
+  },
+  bleStatBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  bleStatText: {
+    fontSize: 10,
+    color: '#9ca3af',
+    fontWeight: '600',
+  },
+
+  // Simulator
+  simulatorSection: { 
+    paddingHorizontal: 24, 
+    marginBottom: 20 
+  },
   dropdownButton: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: '#2d2d44', borderWidth: 1, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 12,
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    borderWidth: 1, 
+    borderRadius: 12,
+    paddingHorizontal: 16, 
+    paddingVertical: 12,
   },
-  dropdownButtonText: { fontSize: 14, fontWeight: '600' },
-  dropdownArrow: { color: '#9ca3af', fontSize: 12 },
-  modalOverlay: { flex: 1, backgroundColor: '#00000088', justifyContent: 'center', paddingHorizontal: 32 },
-  modalMenu: { backgroundColor: '#2d2d44', borderRadius: 14, overflow: 'hidden', padding: 8 },
-  modalTitle: { fontSize: 12, color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', paddingHorizontal: 12, paddingVertical: 8 },
-  modalOption: { paddingHorizontal: 12, paddingVertical: 14, borderRadius: 8 },
-  modalOptionText: { fontSize: 15, fontWeight: '600' },
-  filterWrapper: { paddingHorizontal: 20 },
-  tabBar: { flexDirection: 'row', marginHorizontal: 20, marginBottom: 16, backgroundColor: '#2d2d44', borderRadius: 10, padding: 4 },
-  tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
-  tabButtonActive: { backgroundColor: '#1a1a2e' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#6b7280' },
-  tabTextActive: { color: '#3b82f6' },
-  metricsSection: { paddingHorizontal: 20, marginBottom: 20 },
-  chartSection: { paddingHorizontal: 20, marginBottom: 20 },
-  recommendationSection: { paddingHorizontal: 20, marginBottom: 16 },
-  trendSection: { marginHorizontal: 20, marginBottom: 20 },
-  trendLabel: { fontSize: 12, fontWeight: '600', color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  trendBadge: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  trendBadgeText: { fontSize: 14, fontWeight: '600' },
-  trendCard: { backgroundColor: '#2d2d44', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#3d3d5c' },
-  trendSummary: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
-  trendSummaryText: { fontSize: 13, fontWeight: '700' },
-  monthRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
-  monthLeft: { flex: 1 },
-  monthName: { fontSize: 14, fontWeight: '600', color: '#e5e7eb', marginBottom: 4 },
-  monthSeverityBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  monthDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
-  monthSeverityText: { fontSize: 11, fontWeight: '700' },
-  monthRight: { alignItems: 'flex-end' },
-  monthEvents: { fontSize: 22, fontWeight: '800', color: '#ffffff' },
-  monthEventsLabel: { fontSize: 10, color: '#6b7280', marginTop: -2 },
-  monthChange: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 3 },
-  monthChangeText: { fontSize: 11, fontWeight: '700' },
-  trendFooter: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 },
-  trendStat: { flexDirection: 'row', alignItems: 'center' },
-  trendStatText: { fontSize: 11, color: '#6b7280' },
-  footerInfo: {
-    marginHorizontal: 20, marginBottom: 20, padding: 12,
-    backgroundColor: '#2d2d44', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#3b82f6',
+  simulatorIndicator: {
+    width: 8, 
+    height: 8, 
+    borderRadius: 4, 
+    marginRight: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
   },
-  footerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
-  footerText: { fontSize: 12, color: '#9ca3af', lineHeight: 16 },
-  disclaimerText: { fontSize: 11, color: '#6b7280', fontStyle: 'italic', lineHeight: 16 },
+  dropdownLabel: { 
+    fontSize: 12, 
+    color: '#9ca3af', 
+    fontWeight: '500' 
+  },
+  dropdownButtonText: { 
+    fontSize: 12, 
+    fontWeight: '700' 
+  },
+  
+  // Layout utilities
+  sectionPadding: { 
+    paddingHorizontal: 24, 
+    marginBottom: 8 
+  },
+  
+  // Tabs
+  tabContainer: { 
+    flexDirection: 'row', 
+    marginHorizontal: 24, 
+    marginBottom: 20, 
+    backgroundColor: 'rgba(255, 255, 255, 0.03)', 
+    borderRadius: 12, 
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  tabButton: { 
+    flex: 1, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    paddingVertical: 12, 
+    borderRadius: 10 
+  },
+  tabButtonActive: { 
+    backgroundColor: 'rgba(99, 102, 241, 0.2)' 
+  },
+  tabText: { 
+    fontSize: 12, 
+    fontWeight: '600', 
+    color: '#6b7280' 
+  },
+  tabTextActive: { 
+    color: '#ffffff',
+    fontWeight: '700'
+  },
+
+  // Metrics Grid
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 20, // slightly less to account for card margin
+    marginBottom: 12,
+  },
+  detailButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.4)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginBottom: 8,
+  },
+  detailButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+
+  // Trend Section
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 12,
+  },
+  trendCard: { 
+    backgroundColor: 'rgba(26, 27, 38, 0.75)', 
+    borderRadius: 16, 
+    overflow: 'hidden', 
+    borderWidth: 1, 
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: 16,
+  },
+  trendSummary: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 16, 
+    paddingVertical: 14, 
+    borderBottomWidth: 1, 
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)' 
+  },
+  trendIconBox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  trendSummaryText: { 
+    fontSize: 13, 
+    fontWeight: '700' 
+  },
+  monthRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 16, 
+    paddingVertical: 16, 
+    borderBottomWidth: 1, 
+    borderBottomColor: 'rgba(255, 255, 255, 0.04)' 
+  },
+  monthLeft: { 
+    flex: 1 
+  },
+  monthName: { 
+    fontSize: 14, 
+    fontWeight: '600', 
+    color: '#e5e7eb', 
+    marginBottom: 6 
+  },
+  monthSeverityBadge: { 
+    alignSelf: 'flex-start', 
+    paddingHorizontal: 8, 
+    paddingVertical: 3, 
+    borderRadius: 6 
+  },
+  monthSeverityText: { 
+    fontSize: 10, 
+    fontWeight: '700', 
+    textTransform: 'uppercase' 
+  },
+  monthRight: { 
+    alignItems: 'flex-end' 
+  },
+  monthEvents: { 
+    fontSize: 20, 
+    fontWeight: '800', 
+    color: '#ffffff' 
+  },
+  monthEventsLabel: { 
+    fontSize: 10, 
+    color: '#9ca3af', 
+    marginTop: 2, 
+    textTransform: 'uppercase' 
+  },
+
+  // Modal
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.6)', 
+    justifyContent: 'center', 
+    paddingHorizontal: 32 
+  },
+  modalMenu: { 
+    backgroundColor: '#161722', 
+    borderRadius: 16, 
+    overflow: 'hidden', 
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)'
+  },
+  modalTitle: { 
+    fontSize: 12, 
+    color: '#9ca3af', 
+    fontWeight: '600', 
+    textTransform: 'uppercase', 
+    paddingHorizontal: 12, 
+    paddingVertical: 12,
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  modalOption: { 
+    paddingHorizontal: 12, 
+    paddingVertical: 14, 
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  modalOptionContent: { 
+    flexDirection: 'row', 
+    alignItems: 'center' 
+  },
+  modalOptionText: { 
+    fontSize: 14, 
+    fontWeight: '700' 
+  },
+
+  // Footer
+  footerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  footerText: { 
+    fontSize: 11, 
+    color: '#6b7280', 
+    fontStyle: 'italic' 
+  },
+  logsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  logsButtonText: {
+    flex: 1,
+    color: '#e5e7eb',
+    fontSize: 13,
+    fontWeight: '600',
+  },
 });
