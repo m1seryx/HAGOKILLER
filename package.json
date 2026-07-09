@@ -34,10 +34,16 @@
     "react-native-web": "~0.19.10"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/react": "~18.2.79",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.50.0",
+<<<<<<< HEAD
+=======
+    "jest": "^29.7.0",
+    "react-test-renderer": "^18.2.0",
+>>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
     "typescript": "~5.3.3"
   }
 }

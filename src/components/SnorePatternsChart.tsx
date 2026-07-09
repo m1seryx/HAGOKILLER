@@ -91,6 +91,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
         <Text style={styles.title}>{title}</Text>
       </View>
 
+<<<<<<< HEAD
       <View style={styles.chartWrapper}>
         {chartType === 'line' ? (
           <LineChart
@@ -119,6 +120,59 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
           />
         )}
       </View>
+=======
+      {chartType === 'line' ? (
+        <LineChart
+          data={chartData}
+          width={chartWidth}
+          height={220}
+          chartConfig={{
+            backgroundColor: '#1a1a2e',
+            backgroundGradientFrom: '#1a1a2e',
+            backgroundGradientTo: '#2d2d44',
+            decimalPlaces: 0,
+            color: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
+            labelColor: (opacity = 1) => `rgba(156, 163, 175, ${opacity})`,
+            propsForDots: {
+              r: '6',
+              strokeWidth: '2',
+              stroke: '#3b82f6',
+              fill: '#1a1a2e',
+            },
+            propsForBackgroundLines: {
+              strokeDasharray: '0',
+              stroke: `rgba(156, 163, 175, 0.1)`,
+            },
+          }}
+          style={styles.chart}
+          withDots={true}
+          withInnerLines={true}
+          withOuterLines={true}
+          withVerticalLabels={true}
+        />
+      ) : (
+        <BarChart
+          data={barChartData}
+          width={chartWidth}
+          height={220}
+          yAxisLabel=""
+          yAxisSuffix=""
+          chartConfig={{
+            backgroundColor: '#1a1a2e',
+            backgroundGradientFrom: '#1a1a2e',
+            backgroundGradientTo: '#2d2d44',
+            decimalPlaces: 0,
+            color: (opacity = 1) => `rgba(107, 114, 128, ${opacity})`,
+            labelColor: (opacity = 1) => `rgba(156, 163, 175, ${opacity})`,
+            propsForBackgroundLines: {
+              strokeDasharray: '0',
+              stroke: `rgba(156, 163, 175, 0.1)`,
+            },
+          }}
+          style={styles.chart}
+        />
+      )}
+>>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
 
       <View style={styles.legend}>
         <View style={styles.legendItem}>

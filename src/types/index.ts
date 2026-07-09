@@ -45,3 +45,11 @@ export interface BLEDevice {
   isConnected: boolean;
   signalStrength: number;
 }
+
+export interface UserProfile {
+  name: string;
+  birthdate?: string | null; // YYYY-MM-DD
+  sleepGoalHours?: number | null;
+  createdAt?: number;
+  updatedAt?: number;
+}

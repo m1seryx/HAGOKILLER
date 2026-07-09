@@ -45,7 +45,11 @@ export const calculateDailyStats = (events: SleepEvent[], date: string): DailySt
       const hour = moment(e.timestamp).hour();
       hourCounts[hour] = (hourCounts[hour] || 0) + 1;
     });
+<<<<<<< HEAD
     peakHour = parseInt(Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || '0', 10);
+=======
+    peakHour = Number(Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || 0);
+>>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
   }
 
   const severity = calculateDailySeverity(totalSnoreEvents, averageDuration);
@@ -116,6 +120,38 @@ export const calculateMonthlyStats = (events: SleepEvent[], month: string): Mont
     interventionCount,
     trend: 'stable', // Will be calculated separately when comparing months
     severity,
+  };
+};
+
+export interface InterventionEffectiveness {
+  totalTriggers: number;
+  successfulAdjustments: number;
+  successRatio: number;
+  trend: 'improving' | 'stable' | 'worsening';
+}
+
+export const calculateInterventionEffectiveness = (events: SleepEvent[]): InterventionEffectiveness => {
+  const triggeredEvents = events.filter((event) => event.interventionTriggered);
+  const totalTriggers = triggeredEvents.length;
+  const successfulAdjustments = triggeredEvents.filter((event) => {
+    const shorterDuration = event.duration <= 45;
+    const lowerSeverity = event.severity !== 'high';
+    return shorterDuration || lowerSeverity;
+  }).length;
+  const successRatio = totalTriggers > 0 ? successfulAdjustments / totalTriggers : 0;
+  let trend: 'improving' | 'stable' | 'worsening' = 'stable';
+
+  if (successRatio >= 0.6) {
+    trend = 'improving';
+  } else if (successRatio <= 0.25) {
+    trend = 'worsening';
+  }
+
+  return {
+    totalTriggers,
+    successfulAdjustments,
+    successRatio,
+    trend,
   };
 };
 

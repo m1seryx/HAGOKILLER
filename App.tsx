@@ -8,7 +8,9 @@ import { FontAwesome5 } from '@expo/vector-icons';
 
 import { LoadingScreen } from './src/screens/LoadingScreen';
 import { NameInputScreen } from './src/screens/NameInputScreen';
+import { PairingPinScreen } from './src/screens/PairingPinScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
+<<<<<<< HEAD
 import { NightDetailScreen } from './src/screens/NightDetailScreen';
 import { LogsScreen } from './src/screens/LogsScreen';
 import { MockBLEService } from './src/services/mockBLEService';
@@ -67,6 +69,17 @@ export default function App() {
   const [userName, setUserName] = useState('');
   const [events, setEvents] = useState<SleepEvent[]>([]);
   const bleService = useRef(new MockBLEService()).current;
+=======
+import { UserProfile } from './src/types';
+
+try { SplashScreen.preventAutoHideAsync(); } catch (_) {}
+
+type AppStep = 'loading' | 'name-input' | 'pairing-pin' | 'dashboard';
+
+export default function App() {
+  const [step, setStep] = useState<AppStep>('loading');
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+>>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
 
   useEffect(() => {
     try { SplashScreen.hideAsync(); } catch (_) {}
@@ -84,6 +97,7 @@ export default function App() {
 
   return (
     <View style={styles.container}>
+<<<<<<< HEAD
       <NavigationContainer theme={MyTheme}>
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
 
@@ -119,6 +133,20 @@ export default function App() {
 
         </Stack.Navigator>
       </NavigationContainer>
+=======
+      {step === 'loading' && (
+        <LoadingScreen onLoadingComplete={() => setStep('name-input')} />
+      )}
+      {step === 'name-input' && (
+        <NameInputScreen onProfileSubmit={(profile) => { setUserProfile(profile); setStep('pairing-pin'); }} />
+      )}
+      {step === 'pairing-pin' && (
+        <PairingPinScreen onPinSubmit={() => setStep('dashboard')} />
+      )}
+      {step === 'dashboard' && (
+        <DashboardScreen userName={userProfile?.name || ''} userProfile={userProfile || undefined} />
+      )}
+>>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
     </View>
   );
 }
