@@ -10,18 +10,16 @@ import { LoadingScreen } from './src/screens/LoadingScreen';
 import { NameInputScreen } from './src/screens/NameInputScreen';
 import { PairingPinScreen } from './src/screens/PairingPinScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
-<<<<<<< HEAD
 import { NightDetailScreen } from './src/screens/NightDetailScreen';
 import { LogsScreen } from './src/screens/LogsScreen';
-import { MockBLEService } from './src/services/mockBLEService';
-import { SleepEvent } from './src/types';
+import { UserProfile } from './src/types';
 
 try { SplashScreen.preventAutoHideAsync(); } catch (_) {}
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-const MainTabs = ({ userName, events }: { userName: string; events: SleepEvent[] }) => (
+const MainTabs = ({ userName, userProfile }: { userName: string; userProfile?: UserProfile }) => (
   <Tab.Navigator
     screenOptions={{
       headerShown: false,
@@ -43,7 +41,7 @@ const MainTabs = ({ userName, events }: { userName: string; events: SleepEvent[]
   >
     <Tab.Screen
       name="DashboardTab"
-      children={() => <DashboardScreen userName={userName} />}
+      children={() => <DashboardScreen userName={userName} userProfile={userProfile} />}
       options={{
         tabBarLabel: 'Dashboard',
         tabBarIcon: ({ color, size }) => (
@@ -54,7 +52,6 @@ const MainTabs = ({ userName, events }: { userName: string; events: SleepEvent[]
     <Tab.Screen
       name="LogsTab"
       children={() => <LogsScreen />}
-      initialParams={{ events }}
       options={{
         tabBarLabel: 'Logs',
         tabBarIcon: ({ color, size }) => (
@@ -67,24 +64,10 @@ const MainTabs = ({ userName, events }: { userName: string; events: SleepEvent[]
 
 export default function App() {
   const [userName, setUserName] = useState('');
-  const [events, setEvents] = useState<SleepEvent[]>([]);
-  const bleService = useRef(new MockBLEService()).current;
-=======
-import { UserProfile } from './src/types';
-
-try { SplashScreen.preventAutoHideAsync(); } catch (_) {}
-
-type AppStep = 'loading' | 'name-input' | 'pairing-pin' | 'dashboard';
-
-export default function App() {
-  const [step, setStep] = useState<AppStep>('loading');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
 
   useEffect(() => {
     try { SplashScreen.hideAsync(); } catch (_) {}
-    // Pre-load events so the Logs tab has data immediately
-    bleService.fetchSleepEvents().then(setEvents);
   }, []);
 
   const MyTheme = {
@@ -97,7 +80,6 @@ export default function App() {
 
   return (
     <View style={styles.container}>
-<<<<<<< HEAD
       <NavigationContainer theme={MyTheme}>
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
 
@@ -112,8 +94,19 @@ export default function App() {
           <Stack.Screen name="NameInput">
             {(props) => (
               <NameInputScreen
-                onNameSubmit={(name) => {
-                  setUserName(name);
+                onProfileSubmit={(profile) => {
+                  setUserName(profile.name);
+                  setUserProfile(profile);
+                  props.navigation.replace('PairingPin');
+                }}
+              />
+            )}
+          </Stack.Screen>
+
+          <Stack.Screen name="PairingPin">
+            {(props) => (
+              <PairingPinScreen
+                onPinSubmit={() => {
                   props.navigation.replace('Main');
                 }}
               />
@@ -121,7 +114,7 @@ export default function App() {
           </Stack.Screen>
 
           <Stack.Screen name="Main">
-            {() => <MainTabs userName={userName} events={events} />}
+            {() => <MainTabs userName={userName} userProfile={userProfile || undefined} />}
           </Stack.Screen>
 
           {/* Overlay Screens (hides tab bar) */}
@@ -133,20 +126,6 @@ export default function App() {
 
         </Stack.Navigator>
       </NavigationContainer>
-=======
-      {step === 'loading' && (
-        <LoadingScreen onLoadingComplete={() => setStep('name-input')} />
-      )}
-      {step === 'name-input' && (
-        <NameInputScreen onProfileSubmit={(profile) => { setUserProfile(profile); setStep('pairing-pin'); }} />
-      )}
-      {step === 'pairing-pin' && (
-        <PairingPinScreen onPinSubmit={() => setStep('dashboard')} />
-      )}
-      {step === 'dashboard' && (
-        <DashboardScreen userName={userProfile?.name || ''} userProfile={userProfile || undefined} />
-      )}
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
     </View>
   );
 }

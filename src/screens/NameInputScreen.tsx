@@ -1,11 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-<<<<<<< HEAD
-  KeyboardAvoidingView, Platform, Animated
-=======
   KeyboardAvoidingView, Platform, Animated, Modal,
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import moment from 'moment';
@@ -17,8 +13,12 @@ interface NameInputScreenProps {
 
 export const NameInputScreen: React.FC<NameInputScreenProps> = ({ onProfileSubmit }) => {
   const [name, setName] = useState('');
-<<<<<<< HEAD
-  const [isFocused, setIsFocused] = useState(false);
+  const [birthdate, setBirthdate] = useState<string | null>(null);
+  const [sleepGoal, setSleepGoal] = useState<number | 'other' | null>(8);
+  const [otherGoal, setOtherGoal] = useState('');
+  const [goalModalVisible, setGoalModalVisible] = useState(false);
+  const [birthPickerVisible, setBirthPickerVisible] = useState(false);
+  const [pickerDate, setPickerDate] = useState(moment().subtract(25, 'years').toDate());
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
 
   const handlePressIn = () => {
@@ -34,14 +34,16 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({ onProfileSubmi
       useNativeDriver: true,
     }).start();
   };
-=======
-  const [birthdate, setBirthdate] = useState<string | null>(null);
-  const [sleepGoal, setSleepGoal] = useState<number | 'other' | null>(8);
-  const [otherGoal, setOtherGoal] = useState('');
-  const [goalModalVisible, setGoalModalVisible] = useState(false);
-  const [birthPickerVisible, setBirthPickerVisible] = useState(false);
-  const [pickerDate, setPickerDate] = useState(moment().subtract(25, 'years').toDate());
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
+
+  const handleSubmit = () => {
+    if (!name.trim()) return;
+    const profile: UserProfile = {
+      name: name.trim(),
+      birthdate: birthdate ?? null,
+      sleepGoalHours: sleepGoal === 'other' ? (otherGoal ? parseFloat(otherGoal) : undefined) : (sleepGoal || undefined),
+    };
+    onProfileSubmit(profile);
+  };
 
   return (
     <KeyboardAvoidingView 
@@ -54,60 +56,12 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({ onProfileSubmi
             <FontAwesome5 name="user-astronaut" size={32} color="#6366f1" />
           </View>
         </View>
-<<<<<<< HEAD
 
         <View style={styles.textContainer}>
           <Text style={styles.title}>Welcome Aboard</Text>
           <Text style={styles.subtitle}>Personalize your sleep analytics profile</Text>
         </View>
 
-        <View style={[
-          styles.inputContainer,
-          isFocused && styles.inputContainerFocused
-        ]}>
-          <FontAwesome5 
-            name="user" 
-            size={14} 
-            color={isFocused ? '#6366f1' : '#6b7280'} 
-            style={styles.inputIcon} 
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your name"
-            placeholderTextColor="#6b7280"
-            value={name}
-            onChangeText={setName}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            autoFocus
-            returnKeyType="done"
-            onSubmitEditing={() => name.trim() && onNameSubmit(name.trim())}
-          />
-        </View>
-
-        <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%' }}>
-          <TouchableOpacity
-            style={[styles.button, !name.trim() && styles.buttonDisabled]}
-            onPress={() => name.trim() && onNameSubmit(name.trim())}
-            onPressIn={handlePressIn}
-            onPressOut={handlePressOut}
-            disabled={!name.trim()}
-            activeOpacity={0.9}
-          >
-            <Text style={[styles.buttonText, !name.trim() && styles.buttonTextDisabled]}>
-              Initialize Dashboard
-            </Text>
-            <FontAwesome5 
-              name="arrow-right" 
-              size={12} 
-              color={!name.trim() ? '#6b7280' : '#ffffff'} 
-              style={{ marginLeft: 8, marginTop: 2 }} 
-            />
-          </TouchableOpacity>
-        </Animated.View>
-=======
-        <Text style={styles.title}>Welcome!</Text>
-        <Text style={styles.subtitle}>Tell us about you</Text>
         <TextInput
           style={styles.input}
           placeholder="Full name"
@@ -128,21 +82,26 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({ onProfileSubmi
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.button, !name.trim() && styles.buttonDisabled]}
-          onPress={() => {
-            if (!name.trim()) return;
-            const profile: UserProfile = {
-              name: name.trim(),
-              birthdate: birthdate ?? null,
-              sleepGoalHours: sleepGoal === 'other' ? (otherGoal ? parseFloat(otherGoal) : undefined) : (sleepGoal || undefined),
-            };
-            onProfileSubmit(profile);
-          }}
-          disabled={!name.trim()}
-        >
-          <Text style={styles.buttonText}>Continue</Text>
-        </TouchableOpacity>
+        <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%' }}>
+          <TouchableOpacity
+            style={[styles.button, !name.trim() && styles.buttonDisabled]}
+            onPress={handleSubmit}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            disabled={!name.trim()}
+            activeOpacity={0.9}
+          >
+            <Text style={[styles.buttonText, !name.trim() && styles.buttonTextDisabled]}>
+              Continue
+            </Text>
+            <FontAwesome5 
+              name="arrow-right" 
+              size={12} 
+              color={!name.trim() ? '#6b7280' : '#ffffff'} 
+              style={{ marginLeft: 8, marginTop: 2 }} 
+            />
+          </TouchableOpacity>
+        </Animated.View>
 
         <Modal transparent visible={goalModalVisible} animationType="fade" onRequestClose={() => setGoalModalVisible(false)}>
           <TouchableOpacity style={modalStyles.overlay} onPress={() => setGoalModalVisible(false)}>
@@ -212,7 +171,6 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({ onProfileSubmi
             </View>
           </TouchableOpacity>
         </Modal>
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
       </View>
     </KeyboardAvoidingView>
   );
@@ -224,8 +182,6 @@ const modalStyles = StyleSheet.create({
   option: { paddingVertical: 12, paddingHorizontal: 8, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
   optionText: { color: '#e5e7eb', fontSize: 16, fontWeight: '600' },
 });
-
-// calendar styles will be merged into `styles` below
 
 const styles = StyleSheet.create({
   container: { 
@@ -275,7 +231,7 @@ const styles = StyleSheet.create({
   },
   textContainer: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 24,
   },
   title: { 
     fontSize: 24, 
@@ -290,30 +246,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    width: '100%', 
-    backgroundColor: 'rgba(255, 255, 255, 0.03)', 
-    borderRadius: 16,
-    paddingHorizontal: 16, 
-    borderWidth: 1.5, 
-    borderColor: 'rgba(255, 255, 255, 0.08)', 
-    marginBottom: 24,
-  },
-  inputContainerFocused: {
-    borderColor: '#6366f1',
-    backgroundColor: 'rgba(99, 102, 241, 0.05)',
-  },
-  inputIcon: {
-    marginRight: 12,
-  },
   input: {
-    flex: 1,
-    paddingVertical: 16, 
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
     fontSize: 15,
     fontWeight: '600',
-    color: '#ffffff', 
+    color: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: 12,
   },
   smallInput: {
     width: '100%', backgroundColor: '#2d2d44', borderRadius: 12,
@@ -348,10 +292,6 @@ const styles = StyleSheet.create({
   buttonTextDisabled: {
     color: '#6b7280',
   },
-<<<<<<< HEAD
-=======
-  buttonDisabled: { backgroundColor: '#2d2d44' },
-  buttonText: { fontSize: 16, fontWeight: '700', color: '#ffffff' },
   calendarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
   weekdayRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 6, marginTop: 6 },
   weekdayText: { width: 32, textAlign: 'center', color: '#9ca3af', fontSize: 12 },
@@ -359,5 +299,4 @@ const styles = StyleSheet.create({
   dayCell: { width: 32, height: 36, justifyContent: 'center', alignItems: 'center', margin: 2, borderRadius: 6 },
   dayCellText: { color: '#e5e7eb' },
   dayCellSelected: { backgroundColor: '#3b82f6' },
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
 });

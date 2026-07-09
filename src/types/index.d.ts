@@ -5,4 +5,5 @@ export type {
   DashboardData,
   RecommendationData,
   BLEDevice,
+  UserProfile,
 } from './index';

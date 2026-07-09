@@ -45,11 +45,7 @@ export const calculateDailyStats = (events: SleepEvent[], date: string): DailySt
       const hour = moment(e.timestamp).hour();
       hourCounts[hour] = (hourCounts[hour] || 0) + 1;
     });
-<<<<<<< HEAD
     peakHour = parseInt(Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || '0', 10);
-=======
-    peakHour = Number(Object.entries(hourCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || 0);
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
   }
 
   const severity = calculateDailySeverity(totalSnoreEvents, averageDuration);

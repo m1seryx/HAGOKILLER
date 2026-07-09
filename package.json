@@ -13,6 +13,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@babel/helper-define-polyfill-provider": "^1.0.0",
     "@expo/metro-runtime": "~3.2.3",
     "@react-native-async-storage/async-storage": "1.23.1",
     "@react-navigation/bottom-tabs": "^6.5.11",
@@ -39,11 +40,8 @@
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.50.0",
-<<<<<<< HEAD
-=======
     "jest": "^29.7.0",
     "react-test-renderer": "^18.2.0",
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
     "typescript": "~5.3.3"
   }
 }

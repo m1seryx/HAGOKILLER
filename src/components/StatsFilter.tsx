@@ -1,10 +1,6 @@
 import React, { useState } from 'react';
-<<<<<<< HEAD
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
-import { FontAwesome5 } from '@expo/vector-icons';
-=======
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal } from 'react-native';
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
+import { FontAwesome5 } from '@expo/vector-icons';
 import moment from 'moment';
 
 export type TimePeriod = 'today' | 'week' | 'month' | 'range';
@@ -68,45 +64,19 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
         <View style={styles.rangeContainer}>
           <View style={styles.rangeRow}>
             <View style={styles.rangeField}>
-<<<<<<< HEAD
-              <Text style={styles.rangeLabel}>Start Date</Text>
-              <View style={styles.inputWrapper}>
-                <FontAwesome5 name="calendar-alt" size={12} color="#6b7280" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.rangeInput}
-                  value={from}
-                  onChangeText={setFrom}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#6b7280"
-                />
-              </View>
-=======
               <Text style={styles.rangeLabel}>From</Text>
-              <TouchableOpacity style={styles.rangeInput} onPress={() => { setPickerDate(moment(from).toDate()); setPickerVisible('from'); }}>
-                <Text style={{ color: '#fff' }}>{from}</Text>
+              <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(from).toDate()); setPickerVisible('from'); }}>
+                <FontAwesome5 name="calendar-alt" size={12} color="#6366f1" style={{ marginRight: 6 }} />
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{from}</Text>
               </TouchableOpacity>
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
             </View>
 
             <View style={styles.rangeField}>
-<<<<<<< HEAD
-              <Text style={styles.rangeLabel}>End Date</Text>
-              <View style={styles.inputWrapper}>
-                <FontAwesome5 name="calendar-alt" size={12} color="#6b7280" style={styles.inputIcon} />
-                <TextInput
-                  style={styles.rangeInput}
-                  value={to}
-                  onChangeText={setTo}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor="#6b7280"
-                />
-              </View>
-=======
               <Text style={styles.rangeLabel}>To</Text>
-              <TouchableOpacity style={styles.rangeInput} onPress={() => { setPickerDate(moment(to).toDate()); setPickerVisible('to'); }}>
-                <Text style={{ color: '#fff' }}>{to}</Text>
+              <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(to).toDate()); setPickerVisible('to'); }}>
+                <FontAwesome5 name="calendar-alt" size={12} color="#6366f1" style={{ marginRight: 6 }} />
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{to}</Text>
               </TouchableOpacity>
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
             </View>
 
             <TouchableOpacity style={styles.applyButton} onPress={handleApply}>
@@ -118,7 +88,7 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
       )}
 
       <Modal transparent visible={pickerVisible !== null} animationType="fade" onRequestClose={() => setPickerVisible(null)}>
-        <TouchableOpacity style={styles.modalOverlay} onPress={() => setPickerVisible(null)}>
+        <TouchableOpacity style={styles.modalOverlay} onPress={() => setPickerVisible(null)} activeOpacity={1}>
           <View style={styles.modalMenu}>
             <View style={styles.calendarHeader}>
               <TouchableOpacity onPress={() => setPickerDate(moment(pickerDate).subtract(1, 'month').toDate())}>
@@ -160,11 +130,18 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
               })()}
             </View>
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-              <TouchableOpacity style={styles.applyButton} onPress={() => { if (pickerVisible === 'from') setFrom(moment(pickerDate).format('YYYY-MM-DD')); if (pickerVisible === 'to') setTo(moment(pickerDate).format('YYYY-MM-DD')); setPickerVisible(null); }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, gap: 8 }}>
+              <TouchableOpacity 
+                style={[styles.applyButton, { flex: 1 }]} 
+                onPress={() => { 
+                  if (pickerVisible === 'from') setFrom(moment(pickerDate).format('YYYY-MM-DD')); 
+                  if (pickerVisible === 'to') setTo(moment(pickerDate).format('YYYY-MM-DD')); 
+                  setPickerVisible(null); 
+                }}
+              >
                 <Text style={styles.applyText}>Select</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.applyButton, { backgroundColor: '#6b7280' }]} onPress={() => setPickerVisible(null)}>
+              <TouchableOpacity style={[styles.applyButton, { backgroundColor: '#4b5563', flex: 1 }]} onPress={() => setPickerVisible(null)}>
                 <Text style={styles.applyText}>Cancel</Text>
               </TouchableOpacity>
             </View>
@@ -235,24 +212,16 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  inputWrapper: {
+  rangeInputButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    backgroundColor: '#2d2d44',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    paddingHorizontal: 8,
-  },
-  inputIcon: {
-    marginRight: 6,
-  },
-  rangeInput: {
-    flex: 1,
-    paddingVertical: 6,
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '500',
+    borderColor: '#3d3d5c',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    minHeight: 36,
   },
   applyButton: {
     flexDirection: 'row',
@@ -260,29 +229,84 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    height: 32,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
   },
   applyText: {
     color: '#ffffff',
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 13,
   },
-<<<<<<< HEAD
-=======
-  applyText: { color: '#ffffff', fontWeight: '700', fontSize: 13 },
-  modalOverlay: { flex: 1, backgroundColor: '#00000088', justifyContent: 'center', paddingHorizontal: 32 },
-  modalMenu: { backgroundColor: '#2d2d44', borderRadius: 14, overflow: 'hidden', padding: 12 },
-  modalTitle: { fontSize: 12, color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', paddingHorizontal: 12, paddingVertical: 8 },
-  smallButton: { backgroundColor: '#3d3d5c', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 8 },
-  smallButtonText: { color: '#e5e7eb', fontSize: 14, fontWeight: '700' },
-  calendarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
-  weekdayRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 6, marginTop: 6 },
-  weekdayText: { width: 32, textAlign: 'center', color: '#9ca3af', fontSize: 12 },
-  dayGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 6, marginTop: 8 },
-  dayCell: { width: 32, height: 36, justifyContent: 'center', alignItems: 'center', margin: 2, borderRadius: 6 },
-  dayCellText: { color: '#e5e7eb' },
-  dayCellSelected: { backgroundColor: '#3b82f6' },
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: '#00000088', 
+    justifyContent: 'center', 
+    paddingHorizontal: 32,
+  },
+  modalMenu: { 
+    backgroundColor: '#2d2d44', 
+    borderRadius: 14, 
+    overflow: 'hidden', 
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#3d3d5c',
+  },
+  modalTitle: { 
+    fontSize: 14, 
+    color: '#ffffff', 
+    fontWeight: '700', 
+    textTransform: 'uppercase', 
+    textAlign: 'center',
+    flex: 1,
+  },
+  smallButtonText: { 
+    color: '#6366f1', 
+    fontSize: 16, 
+    fontWeight: '700',
+    paddingHorizontal: 12,
+  },
+  calendarHeader: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#3d3d5c',
+    marginBottom: 8,
+  },
+  weekdayRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    paddingHorizontal: 6, 
+    marginTop: 6,
+  },
+  weekdayText: { 
+    width: 32, 
+    textAlign: 'center', 
+    color: '#9ca3af', 
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dayGrid: { 
+    flexDirection: 'row', 
+    flexWrap: 'wrap', 
+    paddingHorizontal: 6, 
+    marginTop: 8,
+  },
+  dayCell: { 
+    width: 32, 
+    height: 36, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    margin: 2, 
+    borderRadius: 6,
+  },
+  dayCellText: { 
+    color: '#e5e7eb',
+    fontSize: 13,
+  },
+  dayCellSelected: { 
+    backgroundColor: '#6366f1',
+  },
 });

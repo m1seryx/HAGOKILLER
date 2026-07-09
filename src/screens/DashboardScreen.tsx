@@ -5,15 +5,9 @@ import {
   Animated,
 } from 'react-native';
 import moment from 'moment';
-<<<<<<< HEAD
-import { DashboardData, DailyStats, MonthlyStats } from '../types';
-import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
-import { getRecommendations, getSeverityColor, getSeverityLabel } from '../utils/recommendations';
-=======
 import { DashboardData, DailyStats, MonthlyStats, SleepEvent, UserProfile } from '../types';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend, calculateInterventionEffectiveness } from '../utils/statsCalculator';
-import { getRecommendations, getSeverityColor } from '../utils/recommendations';
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
+import { getRecommendations, getSeverityColor, getSeverityLabel } from '../utils/recommendations';
 import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
 import { RecommendationCard } from '../components/RecommendationCard';
@@ -305,41 +299,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
       >
         {/* Header Section */}
         <View style={styles.header}>
-<<<<<<< HEAD
-          <View style={styles.headerTitleArea}>
-            <Text style={styles.greeting}>Good evening, {userName}</Text>
-            <Text style={styles.dateSubtitle}>{moment().format('dddd, MMMM Do')}</Text>
-          </View>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{getInitials(userName)}</Text>
-          </View>
-        </View>
-
-        {/* BLE Connection Card */}
-        <View style={styles.bleCard}>
-          <View style={styles.bleRow}>
-            <View style={styles.bleIconWrapper}>
-              <FontAwesome5 name="microchip" size={16} color="#3b82f6" />
-            </View>
-            <View style={styles.bleInfo}>
-              <Text style={styles.bleTitle}>HAGOKILLER ESP32</Text>
-              <Text style={styles.bleSubtitle}>Active Connection</Text>
-            </View>
-            <View style={styles.bleStats}>
-              <View style={styles.bleStatBadge}>
-                <FontAwesome5 name="battery-full" size={10} color="#10b981" style={{ marginRight: 4 }} />
-                <Text style={styles.bleStatText}>85%</Text>
-              </View>
-              <View style={styles.bleStatBadge}>
-                <FontAwesome5 name="signal" size={10} color="#3b82f6" style={{ marginRight: 4 }} />
-                <Text style={styles.bleStatText}>Strong</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Simulation / Override Controller */}
-=======
           <View style={styles.headerContent}>
             <Text style={styles.greeting}>Hello, {userName} <FontAwesome5 name="hand-paper" size={20} color="#f59e0b" /></Text>
             <View style={styles.statusRow}>
@@ -357,6 +316,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           </View>
         </View>
 
+        {/* Settings Modal */}
         <Modal transparent visible={settingsVisible} animationType="fade" onRequestClose={() => setSettingsVisible(false)}>
           <TouchableOpacity style={styles.modalOverlay} onPress={() => setSettingsVisible(false)}>
             <View style={styles.modalMenu}>
@@ -410,7 +370,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           </TouchableOpacity>
         </Modal>
 
-
+        {/* Alert Banner */}
         {activeAlerts.length > 0 ? (
           <View style={styles.alertBanner}>
             <FontAwesome5 name="exclamation-triangle" size={15} color="#fbbf24" style={{ marginRight: 8 }} />
@@ -421,7 +381,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           </View>
         ) : null}
 
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
+        {/* Simulation / Override Controller */}
         <View style={styles.simulatorSection}>
           <TouchableOpacity
             style={[styles.dropdownButton, { borderColor: severityColor + '60', backgroundColor: severityColor + '10' }]}
@@ -478,14 +438,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
 
         {activeTab === 'analytics' ? (
           <>
-<<<<<<< HEAD
-            {/* Grid Metrics Section */}
-            <View style={styles.metricsGrid}>
-              <StatsCard label="Snore Events" value={stats.totalSnoreEvents} icon="wave-square" severity={stats.severity} />
-              <StatsCard label="Avg. Duration" value={stats.averageDuration} icon="stopwatch" unit="s" />
-              <StatsCard label="Pillow Inflations" value={stats.interventionCount} icon="wind" />
-              <StatsCard label="Peak Hour" value={moment(stats.peakHour, 'H').format('h A')} icon="moon" />
-=======
             {/* Key Metrics */}
             <View style={styles.metricsSection}>
               <StatsCard label="Snoring Events" value={stats.totalSnoreEvents} icon="volume-up" severity={stats.severity} />
@@ -498,7 +450,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
                 icon="check-double"
                 severity={interventionMetrics.trend === 'improving' ? 'normal' : interventionMetrics.trend === 'worsening' ? 'danger' : 'bad'}
               />
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
             </View>
 
             {activeFilter === 'today' && (
@@ -518,22 +469,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
               <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
             </View>
 
-<<<<<<< HEAD
-            {/* Trend History */}
-            <View style={styles.sectionPadding}>
-              <Text style={styles.sectionTitle}>Historical Trend</Text>
-              <View style={styles.trendCard}>
-                
-                <View style={[styles.trendSummary, {
-                  backgroundColor: trend === 'improving' ? 'rgba(16, 185, 129, 0.1)' : trend === 'worsening' ? 'rgba(239, 68, 68, 0.1)' : 'rgba(99, 102, 241, 0.1)',
-                }]}>
-                  <View style={styles.trendIconBox}>
-                    <FontAwesome5
-                      name={trend === 'improving' ? 'arrow-trend-down' : trend === 'worsening' ? 'arrow-trend-up' : 'minus'}
-                      size={12}
-                      color={trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#6366f1'}
-                    />
-=======
+            {/* Hourly Snore Activity */}
             <View style={styles.hourlySection}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.panelHeader}>Hourly Snore Activity</Text>
@@ -564,67 +500,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
 
             {/* Monthly Trend */}
             <View style={styles.trendSection}>
-          <Text style={styles.trendLabel}>Monthly Trend</Text>
-          <View style={styles.trendCard}>
-            {/* Trend summary badge */}
-            <View style={[styles.trendSummary, {
-              backgroundColor: trend === 'improving' ? '#10b98120' : trend === 'worsening' ? '#ef444420' : '#f59e0b20',
-            }]}>
-              <FontAwesome5
-                name={trend === 'improving' ? 'chart-line' : trend === 'worsening' ? 'exclamation-triangle' : 'equals'}
-                size={14}
-                color={trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b'}
-                style={{ marginRight: 8 }}
-              />
-              <Text style={[styles.trendSummaryText, {
-                color: trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b',
-              }]}>
-                {trend === 'improving' ? 'Improving over time' : trend === 'worsening' ? 'Worsening over time' : 'Stable pattern'}
-              </Text>
-            </View>
-
-            {/* Month rows */}
-            {monthHistory.map((m, i) => {
-              const prev = monthHistory[i - 1];
-              const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : null;
-              const mColor = getSeverityColor(m.severity);
-              return (
-                <View key={m.month} style={styles.monthRow}>
-                  <View style={styles.monthLeft}>
-                    <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM YYYY')}</Text>
-                    <View style={[styles.monthSeverityBadge, { backgroundColor: mColor + '22' }]}>
-                      <View style={[styles.monthDot, { backgroundColor: mColor }]} />
-                      <Text style={[styles.monthSeverityText, { color: mColor }]}>
-                        {m.severity.charAt(0).toUpperCase() + m.severity.slice(1)}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.monthRight}>
-                    <Text style={styles.monthEvents}>{m.totalSnoreEvents}</Text>
-                    <Text style={styles.monthEventsLabel}>events</Text>
-                    {change !== null && (
-                      <View style={styles.monthChange}>
-                        <FontAwesome5
-                          name={change < 0 ? 'arrow-down' : change > 0 ? 'arrow-up' : 'minus'}
-                          size={10}
-                          color={change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b'}
-                        />
-                        <Text style={[styles.monthChangeText, {
-                          color: change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b',
-                        }]}>
-                          {Math.abs(change)}
-                        </Text>
-                      </View>
-                    )}
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
-                  </View>
+              <Text style={styles.trendLabel}>Monthly Trend</Text>
+              <View style={styles.trendCard}>
+                {/* Trend summary badge */}
+                <View style={[styles.trendSummary, {
+                  backgroundColor: trend === 'improving' ? '#10b98120' : trend === 'worsening' ? '#ef444420' : '#f59e0b20',
+                }]}>
+                  <FontAwesome5
+                    name={trend === 'improving' ? 'chart-line' : trend === 'worsening' ? 'exclamation-triangle' : 'equals'}
+                    size={14}
+                    color={trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b'}
+                    style={{ marginRight: 8 }}
+                  />
                   <Text style={[styles.trendSummaryText, {
-                    color: trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#818cf8',
+                    color: trend === 'improving' ? '#10b981' : trend === 'worsening' ? '#ef4444' : '#f59e0b',
                   }]}>
-                    {trend === 'improving' ? 'Patterns are improving' : trend === 'worsening' ? 'Condition is worsening' : 'Patterns are stable'}
+                    {trend === 'improving' ? 'Improving over time' : trend === 'worsening' ? 'Worsening over time' : 'Stable pattern'}
                   </Text>
                 </View>
 
+                {/* Month rows */}
                 {monthHistory.map((m, i) => {
                   const prev = monthHistory[i - 1];
                   const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : null;
@@ -632,16 +527,31 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
                   return (
                     <View key={m.month} style={styles.monthRow}>
                       <View style={styles.monthLeft}>
-                        <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM')}</Text>
-                        <View style={[styles.monthSeverityBadge, { backgroundColor: mColor + '1a' }]}>
+                        <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM YYYY')}</Text>
+                        <View style={[styles.monthSeverityBadge, { backgroundColor: mColor + '22' }]}>
+                          <View style={[styles.monthDot, { backgroundColor: mColor }]} />
                           <Text style={[styles.monthSeverityText, { color: mColor }]}>
-                            {getSeverityLabel(m.severity)}
+                            {m.severity.charAt(0).toUpperCase() + m.severity.slice(1)}
                           </Text>
                         </View>
                       </View>
                       <View style={styles.monthRight}>
                         <Text style={styles.monthEvents}>{m.totalSnoreEvents}</Text>
-                        <Text style={styles.monthEventsLabel}>total</Text>
+                        <Text style={styles.monthEventsLabel}>events</Text>
+                        {change !== null && (
+                          <View style={styles.monthChange}>
+                            <FontAwesome5
+                              name={change < 0 ? 'arrow-down' : change > 0 ? 'arrow-up' : 'minus'}
+                              size={10}
+                              color={change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b'}
+                            />
+                            <Text style={[styles.monthChangeText, {
+                              color: change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b',
+                            }]}>
+                              {Math.abs(change)}
+                            </Text>
+                          </View>
+                        )}
                       </View>
                     </View>
                   );
@@ -649,13 +559,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
               </View>
             </View>
           </>
-<<<<<<< HEAD
-        ) : (
-          <View style={styles.sectionPadding}>
-=======
         ) : activeTab === 'recommendations' ? (
           <View style={styles.recommendationSection}>
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
             <RecommendationCard data={recommendations} />
           </View>
         ) : (
@@ -818,27 +723,27 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#0a0b10' // Space midnight background
+    backgroundColor: '#0a0b10',
   },
   loadingContainer: { 
     flex: 1, 
     backgroundColor: '#0a0b10', 
     justifyContent: 'center', 
-    alignItems: 'center' 
+    alignItems: 'center',
   },
   centerContent: { 
-    alignItems: 'center' 
+    alignItems: 'center',
   },
   loadingText: { 
     fontSize: 14, 
     color: '#6366f1', 
     marginTop: 16, 
     fontWeight: '600', 
-    letterSpacing: 0.5 
+    letterSpacing: 0.5,
   },
   errorText: { 
     fontSize: 14, 
-    color: '#ef4444' 
+    color: '#ef4444',
   },
   
   // Header
@@ -850,104 +755,6 @@ const styles = StyleSheet.create({
     paddingTop: 24, 
     paddingBottom: 20,
   },
-<<<<<<< HEAD
-  headerTitleArea: {
-    flex: 1,
-  },
-  greeting: { 
-    fontSize: 24, 
-    fontWeight: '800', 
-    color: '#ffffff', 
-    marginBottom: 4, 
-    letterSpacing: 0.5 
-  },
-  dateSubtitle: { 
-    fontSize: 13, 
-    color: '#9ca3af', 
-    fontWeight: '500' 
-  },
-  avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(99, 102, 241, 0.15)',
-    borderWidth: 1.5,
-    borderColor: '#6366f1',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#6366f1',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
-  avatarText: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-
-  // BLE Card
-  bleCard: {
-    marginHorizontal: 24,
-    marginBottom: 20,
-    backgroundColor: 'rgba(26, 27, 38, 0.75)',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  bleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  bleIconWrapper: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(59, 130, 246, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  bleInfo: {
-    flex: 1,
-  },
-  bleTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#e5e7eb',
-    marginBottom: 2,
-    letterSpacing: 0.5,
-  },
-  bleSubtitle: {
-    fontSize: 11,
-    color: '#10b981',
-    fontWeight: '600',
-  },
-  bleStats: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  bleStatBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  bleStatText: {
-    fontSize: 10,
-    color: '#9ca3af',
-    fontWeight: '600',
-  },
-
-  // Simulator
-  simulatorSection: { 
-    paddingHorizontal: 24, 
-    marginBottom: 20 
-  },
-=======
   headerContent: { flex: 1, paddingRight: 8 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   settingsButton: {
@@ -965,12 +772,9 @@ const styles = StyleSheet.create({
   statusLabel: { fontSize: 14, color: '#9ca3af' },
   statusValue: { fontSize: 14, fontWeight: '700' },
   headerSubtitle: { fontSize: 12, color: '#6b7280' },
-  statusBadge: {
-    flexDirection: 'row', alignItems: 'center', borderWidth: 1,
-    paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
-  },
   statusDot: { width: 8, height: 8, borderRadius: 4, marginRight: 6 },
-  statusBadgeText: { fontSize: 11, fontWeight: '700' },
+
+  // Device Card (settings modal)
   deviceCard: {
     marginHorizontal: 20,
     marginBottom: 16,
@@ -1021,7 +825,8 @@ const styles = StyleSheet.create({
     color: '#f3f4f6',
     fontWeight: '600',
   },
-  simulatorSection: { paddingHorizontal: 20, marginBottom: 16 },
+
+  // Alert Banner
   alertBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1035,18 +840,9 @@ const styles = StyleSheet.create({
   },
   alertTitle: { fontSize: 12, fontWeight: '700', color: '#fbbf24', marginBottom: 2 },
   alertText: { fontSize: 12, color: '#fde68a', lineHeight: 18 },
-  simulatorLabel: { fontSize: 11, color: '#9ca3af', fontWeight: '600', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
-  dropdownButton: {
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center',
-    borderWidth: 1, 
-    borderRadius: 12,
-    paddingHorizontal: 16, 
-    paddingVertical: 12,
-  },
-<<<<<<< HEAD
+
+  // Simulator
+  simulatorSection: { paddingHorizontal: 20, marginBottom: 16 },
   simulatorIndicator: {
     width: 8, 
     height: 8, 
@@ -1057,20 +853,29 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     shadowOffset: { width: 0, height: 1 },
   },
+  dropdownButton: {
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    borderWidth: 1, 
+    borderRadius: 12,
+    paddingHorizontal: 16, 
+    paddingVertical: 12,
+  },
   dropdownLabel: { 
     fontSize: 12, 
     color: '#9ca3af', 
-    fontWeight: '500' 
+    fontWeight: '500',
   },
   dropdownButtonText: { 
     fontSize: 12, 
-    fontWeight: '700' 
+    fontWeight: '700',
   },
   
   // Layout utilities
   sectionPadding: { 
     paddingHorizontal: 24, 
-    marginBottom: 8 
+    marginBottom: 8,
   },
   
   // Tabs
@@ -1090,26 +895,26 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     justifyContent: 'center', 
     paddingVertical: 12, 
-    borderRadius: 10 
+    borderRadius: 10,
   },
   tabButtonActive: { 
-    backgroundColor: 'rgba(99, 102, 241, 0.2)' 
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
   },
   tabText: { 
     fontSize: 12, 
     fontWeight: '600', 
-    color: '#6b7280' 
+    color: '#6b7280',
   },
   tabTextActive: { 
     color: '#ffffff',
-    fontWeight: '700'
+    fontWeight: '700',
   },
 
-  // Metrics Grid
-  metricsGrid: {
+  // Metrics
+  metricsSection: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: 20, // slightly less to account for card margin
+    paddingHorizontal: 20,
     marginBottom: 12,
   },
   detailButton: {
@@ -1130,172 +935,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 
-  // Trend Section
-  sectionTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#ffffff',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 12,
-  },
-  trendCard: { 
-    backgroundColor: 'rgba(26, 27, 38, 0.75)', 
-    borderRadius: 16, 
-    overflow: 'hidden', 
-    borderWidth: 1, 
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    marginBottom: 16,
-  },
-  trendSummary: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    paddingHorizontal: 16, 
-    paddingVertical: 14, 
-    borderBottomWidth: 1, 
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)' 
-  },
-  trendIconBox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-  },
-  trendSummaryText: { 
-    fontSize: 13, 
-    fontWeight: '700' 
-  },
-  monthRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingHorizontal: 16, 
-    paddingVertical: 16, 
-    borderBottomWidth: 1, 
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)' 
-  },
-  monthLeft: { 
-    flex: 1 
-  },
-  monthName: { 
-    fontSize: 14, 
-    fontWeight: '600', 
-    color: '#e5e7eb', 
-    marginBottom: 6 
-  },
-  monthSeverityBadge: { 
-    alignSelf: 'flex-start', 
-    paddingHorizontal: 8, 
-    paddingVertical: 3, 
-    borderRadius: 6 
-  },
-  monthSeverityText: { 
-    fontSize: 10, 
-    fontWeight: '700', 
-    textTransform: 'uppercase' 
-  },
-  monthRight: { 
-    alignItems: 'flex-end' 
-  },
-  monthEvents: { 
-    fontSize: 20, 
-    fontWeight: '800', 
-    color: '#ffffff' 
-  },
-  monthEventsLabel: { 
-    fontSize: 10, 
-    color: '#9ca3af', 
-    marginTop: 2, 
-    textTransform: 'uppercase' 
-  },
-
-  // Modal
-  modalOverlay: { 
-    flex: 1, 
-    backgroundColor: 'rgba(0,0,0,0.6)', 
-    justifyContent: 'center', 
-    paddingHorizontal: 32 
-  },
-  modalMenu: { 
-    backgroundColor: '#161722', 
-    borderRadius: 16, 
-    overflow: 'hidden', 
-    padding: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)'
-  },
-  modalTitle: { 
-    fontSize: 12, 
-    color: '#9ca3af', 
-    fontWeight: '600', 
-    textTransform: 'uppercase', 
-    paddingHorizontal: 12, 
-    paddingVertical: 12,
-    marginBottom: 4,
-    letterSpacing: 0.5,
-  },
-  modalOption: { 
-    paddingHorizontal: 12, 
-    paddingVertical: 14, 
-    borderRadius: 10,
-    marginBottom: 4,
-  },
-  modalOptionContent: { 
-    flexDirection: 'row', 
-    alignItems: 'center' 
-  },
-  modalOptionText: { 
-    fontSize: 14, 
-    fontWeight: '700' 
-  },
-
-  // Footer
-  footerContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  footerText: { 
-    fontSize: 11, 
-    color: '#6b7280', 
-    fontStyle: 'italic' 
-  },
-  logsButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(26, 27, 38, 0.75)',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginTop: 8,
-  },
-  logsButtonText: {
-    flex: 1,
-    color: '#e5e7eb',
-    fontSize: 13,
-    fontWeight: '600',
-=======
-  dropdownButtonText: { fontSize: 14, fontWeight: '600' },
-  dropdownArrow: { color: '#9ca3af', fontSize: 12 },
-  modalOverlay: { flex: 1, backgroundColor: '#00000088', justifyContent: 'center', paddingHorizontal: 32 },
-  modalMenu: { backgroundColor: '#2d2d44', borderRadius: 14, overflow: 'hidden', padding: 8 },
-  modalTitle: { fontSize: 12, color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', paddingHorizontal: 12, paddingVertical: 8 },
-  modalOption: { paddingHorizontal: 12, paddingVertical: 14, borderRadius: 8 },
-  modalOptionText: { fontSize: 15, fontWeight: '600' },
-  filterWrapper: { paddingHorizontal: 20 },
-  tabBar: { flexDirection: 'row', marginHorizontal: 20, marginBottom: 16, backgroundColor: '#2d2d44', borderRadius: 10, padding: 4 },
-  tabButton: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, borderRadius: 8 },
-  tabButtonActive: { backgroundColor: '#1a1a2e' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#6b7280' },
-  tabTextActive: { color: '#3b82f6' },
-  metricsSection: { paddingHorizontal: 20, marginBottom: 20 },
-  chartSection: { paddingHorizontal: 20, marginBottom: 20 },
+  // Hourly Activity
   hourlySection: { marginHorizontal: 20, marginBottom: 20, padding: 14, borderRadius: 14, backgroundColor: '#2d2d44', borderWidth: 1, borderColor: '#3d3d5c' },
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   panelHeader: { fontSize: 14, fontWeight: '700', color: '#ffffff' },
@@ -1304,6 +944,50 @@ const styles = StyleSheet.create({
   hourlyBarColumn: { flex: 1, alignItems: 'center', marginHorizontal: 1 },
   hourlyBar: { width: '100%', maxWidth: 8, borderRadius: 999, backgroundColor: '#3b82f6', minHeight: 8 },
   hourlyLabel: { fontSize: 9, color: '#9ca3af', marginTop: 6 },
+
+  // Trend Section
+  trendSection: { marginHorizontal: 20, marginBottom: 20 },
+  trendLabel: { fontSize: 12, fontWeight: '600', color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  trendCard: { 
+    backgroundColor: '#2d2d44', 
+    borderRadius: 12, 
+    overflow: 'hidden', 
+    borderWidth: 1, 
+    borderColor: '#3d3d5c',
+  },
+  trendSummary: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    paddingHorizontal: 14, 
+    paddingVertical: 10, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#3d3d5c',
+  },
+  trendSummaryText: { 
+    fontSize: 13, 
+    fontWeight: '700',
+  },
+  monthRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    paddingHorizontal: 14, 
+    paddingVertical: 12, 
+    borderBottomWidth: 1, 
+    borderBottomColor: '#3d3d5c',
+  },
+  monthLeft: { flex: 1 },
+  monthName: { fontSize: 14, fontWeight: '600', color: '#e5e7eb', marginBottom: 4 },
+  monthSeverityBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  monthDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
+  monthSeverityText: { fontSize: 11, fontWeight: '700' },
+  monthRight: { alignItems: 'flex-end' },
+  monthEvents: { fontSize: 22, fontWeight: '800', color: '#ffffff' },
+  monthEventsLabel: { fontSize: 10, color: '#6b7280', marginTop: -2 },
+  monthChange: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 3 },
+  monthChangeText: { fontSize: 11, fontWeight: '700' },
+
+  // Recommendation & Logs sections
   recommendationSection: { paddingHorizontal: 20, marginBottom: 16 },
   logsSection: { paddingHorizontal: 20, marginBottom: 20 },
   settingsCard: { backgroundColor: '#2d2d44', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#3d3d5c' },
@@ -1335,30 +1019,74 @@ const styles = StyleSheet.create({
   logTimestamp: { fontSize: 13, color: '#ffffff', fontWeight: '700', marginBottom: 4 },
   logDetails: { fontSize: 12, color: '#9ca3af', lineHeight: 18 },
   deleteIconButton: { padding: 8 },
-  trendSection: { marginHorizontal: 20, marginBottom: 20 },
-  trendLabel: { fontSize: 12, fontWeight: '600', color: '#9ca3af', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
-  trendBadge: { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  trendBadgeText: { fontSize: 14, fontWeight: '600' },
-  trendCard: { backgroundColor: '#2d2d44', borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#3d3d5c' },
-  trendSummary: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
-  trendSummaryText: { fontSize: 13, fontWeight: '700' },
-  monthRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#3d3d5c' },
-  monthLeft: { flex: 1 },
-  monthName: { fontSize: 14, fontWeight: '600', color: '#e5e7eb', marginBottom: 4 },
-  monthSeverityBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  monthDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
-  monthSeverityText: { fontSize: 11, fontWeight: '700' },
-  monthRight: { alignItems: 'flex-end' },
-  monthEvents: { fontSize: 22, fontWeight: '800', color: '#ffffff' },
-  monthEventsLabel: { fontSize: 10, color: '#6b7280', marginTop: -2 },
-  monthChange: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 3 },
-  monthChangeText: { fontSize: 11, fontWeight: '700' },
-  trendFooter: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 14, paddingVertical: 10 },
-  trendStat: { flexDirection: 'row', alignItems: 'center' },
-  trendStatText: { fontSize: 11, color: '#6b7280' },
-  footerInfo: {
-    marginHorizontal: 20, marginBottom: 20, padding: 12,
-    backgroundColor: '#2d2d44', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#3b82f6',
->>>>>>> fbc19acd13655bc5980b18ad0e039e6e8d27ad05
+
+  // Modal
+  modalOverlay: { 
+    flex: 1, 
+    backgroundColor: 'rgba(0,0,0,0.6)', 
+    justifyContent: 'center', 
+    paddingHorizontal: 32,
+  },
+  modalMenu: { 
+    backgroundColor: '#161722', 
+    borderRadius: 16, 
+    overflow: 'hidden', 
+    padding: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalTitle: { 
+    fontSize: 12, 
+    color: '#9ca3af', 
+    fontWeight: '600', 
+    textTransform: 'uppercase', 
+    paddingHorizontal: 12, 
+    paddingVertical: 12,
+    marginBottom: 4,
+    letterSpacing: 0.5,
+  },
+  modalOption: { 
+    paddingHorizontal: 12, 
+    paddingVertical: 14, 
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  modalOptionContent: { 
+    flexDirection: 'row', 
+    alignItems: 'center',
+  },
+  modalOptionText: { 
+    fontSize: 14, 
+    fontWeight: '700',
+  },
+
+  // Footer
+  footerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  footerText: { 
+    fontSize: 11, 
+    color: '#6b7280', 
+    fontStyle: 'italic',
+  },
+  logsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 8,
+  },
+  logsButtonText: {
+    flex: 1,
+    color: '#e5e7eb',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });
