@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Smart Pillow",
+    "name": "HAGOKILLER",
     "slug": "smart-pillow-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -26,6 +26,11 @@
       "android.permission.BLUETOOTH_ADMIN",
       "android.permission.BLUETOOTH_SCAN",
       "android.permission.BLUETOOTH_CONNECT"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a50aa0de-3db4-4ba1-9a0f-138e8229858c"
+      }
+    }
   }
 }

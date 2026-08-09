@@ -1,0 +1,54 @@
+# HAGOKILLER App Module List
+
+This document lists the main modules and source files for the HAGOKILLER React Native app.
+
+## Core App Entry
+- `App.tsx` — main Expo app entry, navigation stack, tab navigation, and screen routing.
+- `index.js` — Expo entry point for the app.
+- `app.json` — Expo app configuration.
+
+## Screens
+- `src/screens/LoadingScreen.tsx` — splash/loading screen.
+- `src/screens/NameInputScreen.tsx` — collects the user profile name.
+- `src/screens/PairingPinScreen.tsx` — BLE pairing PIN entry screen.
+- `src/screens/DashboardScreen.tsx` — main analytics and sleep dashboard.
+- `src/screens/NightDetailScreen.tsx` — detailed night/session view.
+- `src/screens/LogsScreen.tsx` — access and display event logs.
+- `src/screens/index.ts` — screen exports aggregator.
+
+## Components
+- `src/components/StatsCard.tsx` — small UI card for metrics.
+- `src/components/SnorePatternsChart.tsx` — chart rendering snore pattern data.
+- `src/components/RecommendationCard.tsx` — recommendation card component.
+- `src/components/StatsFilter.tsx` — filtering controls for dashboard metrics.
+- `src/components/index.ts` — component exports aggregator.
+
+## Services
+- `src/services/mockBLEService.ts` — mock BLE data service and simulated sleep event generator.
+- `src/services/index.ts` — service exports aggregator.
+
+## Utilities
+- `src/utils/pinValidation.ts` — PIN validation logic.
+- `src/utils/recommendations.ts` — recommendation helpers for sleep analytics.
+- `src/utils/statsCalculator.ts` — dashboard stats calculation logic.
+- `src/utils/index.ts` — utility exports aggregator.
+- `src/utils/pinValidation.test.ts` — tests for PIN validation.
+- `src/utils/statsCalculator.test.ts` — tests for stats calculations.
+
+## Hooks
+- `src/hooks/useFonts.ts` — font loading hook for Expo app.
+
+## Types
+- `src/types/index.ts` — app type definitions.
+- `src/types/index.d.ts` — ambient type declarations.
+- `src/types/jest.d.ts` — Jest type declarations.
+
+## Package and Tooling
+- `package.json` — npm package and dependency manifest.
+- `tsconfig.json` — TypeScript compiler configuration.
+- `babel.config.js` — Babel config for Expo/React Native.
+- `jest.config.js` — Jest test runner configuration.
+- `jest.setup.js` — Jest setup file.
+- `eas.json` — Expo App Services build configuration.
+- `README.md` — project readme documentation.
+- `PROTOTYPE.md` — prototype system guide and walkthrough.

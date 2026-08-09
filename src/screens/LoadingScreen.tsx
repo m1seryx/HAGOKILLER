@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text, Animated } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 
 interface LoadingScreenProps {
@@ -78,7 +79,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
   }, [onLoadingComplete]);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         
         {/* Glow Ring bed icon wrapper */}
@@ -107,7 +108,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
         <FontAwesome5 name="shield-alt" size={12} color="#4b5563" style={{ marginRight: 6 }} />
         <Text style={styles.footer}>Ecosystem paired & encrypted</Text>
       </View>
-    </View>
+    </SafeAreaView>
   );
 };
 

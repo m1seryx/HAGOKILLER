@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
 import { SleepEvent } from '../types';
@@ -17,12 +18,14 @@ const getSeverityStyle = (severity: string) => {
 };
 
 type FilterType = 'all' | 'snore' | 'intervention';
+const LOGS_PER_PAGE = 10;
 
 export const LogsScreen = () => {
   const route = useRoute();
   const paramEvents: SleepEvent[] = (route.params as any)?.events || [];
   const [events, setEvents] = useState<SleepEvent[]>(paramEvents);
   const [filter, setFilter] = useState<FilterType>('all');
+  const [page, setPage] = useState(0);
 
   useEffect(() => {
     // If no events passed via params, self-load from mock service
@@ -31,11 +34,24 @@ export const LogsScreen = () => {
     }
   }, []);
 
+  useEffect(() => {
+    setPage(0);
+  }, [filter]);
+
   const filteredEvents = events.filter((e) => {
     if (filter === 'intervention') return e.interventionTriggered;
     if (filter === 'snore') return !e.interventionTriggered;
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredEvents.length / LOGS_PER_PAGE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const paginatedEvents = filteredEvents.slice(
+    currentPage * LOGS_PER_PAGE,
+    currentPage * LOGS_PER_PAGE + LOGS_PER_PAGE,
+  );
+  const rangeStart = filteredEvents.length === 0 ? 0 : currentPage * LOGS_PER_PAGE + 1;
+  const rangeEnd = Math.min(filteredEvents.length, (currentPage + 1) * LOGS_PER_PAGE);
 
   const renderLogItem = ({ item, index }: { item: SleepEvent; index: number }) => {
     const sev = getSeverityStyle(item.severity);
@@ -78,12 +94,16 @@ export const LogsScreen = () => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerTitleArea}>
           <Text style={styles.headerTitle}>Historical Logs</Text>
-          <Text style={styles.headerSubtitle}>{filteredEvents.length} events recorded</Text>
+          <Text style={styles.headerSubtitle}>
+            {filteredEvents.length === 0
+              ? 'No events recorded'
+              : `Showing ${rangeStart}–${rangeEnd} of ${filteredEvents.length}`}
+          </Text>
         </View>
       </View>
 
@@ -113,11 +133,36 @@ export const LogsScreen = () => {
 
       {/* Log List */}
       <FlatList
-        data={filteredEvents}
-        renderItem={renderLogItem}
+        data={paginatedEvents}
+        renderItem={({ item, index }) => renderLogItem({ item, index: currentPage * LOGS_PER_PAGE + index })}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: 16 }}
+        ListFooterComponent={
+          totalPages > 1 ? (
+            <View style={styles.paginationRow}>
+              <TouchableOpacity
+                style={[styles.paginationButton, currentPage === 0 && styles.paginationButtonDisabled]}
+                onPress={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={currentPage === 0}
+              >
+                <FontAwesome5 name="chevron-left" size={12} color="#ffffff" />
+                <Text style={styles.paginationButtonText}>Previous</Text>
+              </TouchableOpacity>
+              <Text style={styles.paginationLabel}>
+                Page {currentPage + 1} of {totalPages}
+              </Text>
+              <TouchableOpacity
+                style={[styles.paginationButton, currentPage >= totalPages - 1 && styles.paginationButtonDisabled]}
+                onPress={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={currentPage >= totalPages - 1}
+              >
+                <Text style={styles.paginationButtonText}>Next</Text>
+                <FontAwesome5 name="chevron-right" size={12} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+          ) : null
+        }
       />
     </SafeAreaView>
   );
@@ -131,11 +176,15 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.05)',
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
   },
   backButton: {
     width: 40,
@@ -262,5 +311,40 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#e5e7eb',
     fontFamily: 'monospace',
+  },
+  paginationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    marginTop: 8,
+  },
+  paginationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(99, 102, 241, 0.35)',
+  },
+  paginationButtonDisabled: {
+    opacity: 0.35,
+  },
+  paginationButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  paginationLabel: {
+    color: '#9ca3af',
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

@@ -81,6 +81,12 @@ export const calculateTrend = (monthlyStats: MonthlyStats[]): 'improving' | 'sta
   const currentAvg = currentMonth.totalSnoreEvents / 30; // Average per day
   const previousAvg = previousMonth.totalSnoreEvents / 30;
 
+  // Avoid divide-by-zero when previous month had no events
+  if (previousAvg === 0) {
+    if (currentAvg === 0) return 'stable';
+    return 'worsening';
+  }
+
   const changePercent = ((currentAvg - previousAvg) / previousAvg) * 100;
 
   if (changePercent < -10) return 'improving';
@@ -105,9 +111,16 @@ export const calculateMonthlyStats = (events: SleepEvent[], month: string): Mont
       : 0;
   const interventionCount = monthEvents.filter((e) => e.interventionTriggered).length;
 
-  const severity = calculateMonthlySeverity([
-    calculateDailyStats(monthEvents, month.split('-').slice(0, 2).join('-')),
-  ]);
+  // Build real per-day stats for the month (YYYY-MM alone is not a valid day key)
+  const dailyStats: DailyStats[] = [];
+  const cursor = monthStart.clone();
+  while (cursor.isSameOrBefore(monthEnd, 'day')) {
+    dailyStats.push(calculateDailyStats(monthEvents, cursor.format('YYYY-MM-DD')));
+    cursor.add(1, 'day');
+  }
+
+  const activeDays = dailyStats.filter((d) => d.totalSnoreEvents > 0);
+  const severity = calculateMonthlySeverity(activeDays.length > 0 ? activeDays : dailyStats);
 
   return {
     month,

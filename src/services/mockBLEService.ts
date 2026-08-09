@@ -1,6 +1,11 @@
-import { SleepEvent, DashboardData, DailyStats, MonthlyStats } from '../types';
+import { SleepEvent, DashboardData, DailyStats } from '../types';
 import moment from 'moment';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
+
+export interface DeviceSettings {
+  snoreThreshold: number;
+  pumpDuration: number;
+}
 
 // Realistic mock sleep data — 90 days of hardcoded events
 // Story: starts with bad snoring, peaks dangerously mid-period, slowly improves
@@ -155,7 +160,6 @@ export const generateMockSleepEvents = (days: number = 90): SleepEvent[] => {
 export const calculateDashboardData = (events: SleepEvent[]): DashboardData => {
   const now = moment();
   const todayStr = now.format('YYYY-MM-DD');
-  const thisWeekStart = now.clone().subtract(6, 'days').startOf('day');
 
   // Today's stats
   const today = calculateDailyStats(events, todayStr);
@@ -170,9 +174,12 @@ export const calculateDashboardData = (events: SleepEvent[]): DashboardData => {
     thisWeek.push(calculateDailyStats(events, date));
   }
 
-  // This month's stats
+  // This month's stats + trend vs previous month
   const thisMonthStr = now.format('YYYY-MM');
+  const previousMonthStr = now.clone().subtract(1, 'month').format('YYYY-MM');
   const thisMonth = calculateMonthlyStats(events, thisMonthStr);
+  const previousMonth = calculateMonthlyStats(events, previousMonthStr);
+  thisMonth.trend = calculateTrend([previousMonth, thisMonth]);
 
   return {
     today,
@@ -185,25 +192,42 @@ export const calculateDashboardData = (events: SleepEvent[]): DashboardData => {
 // Simulated BLE service (to be replaced with actual BLE communication)
 export class MockBLEService {
   private mockEvents: SleepEvent[] = generateMockSleepEvents();
+  private connected = false;
+  private settings: DeviceSettings = {
+    snoreThreshold: 3,
+    pumpDuration: 12,
+  };
 
   async connect(): Promise<boolean> {
-    // Simulate connection delay
     return new Promise((resolve) => {
-      setTimeout(() => resolve(true), 1000);
+      setTimeout(() => {
+        this.connected = true;
+        resolve(true);
+      }, 1000);
     });
   }
 
   async disconnect(): Promise<void> {
     return new Promise((resolve) => {
-      setTimeout(() => resolve(), 500);
+      setTimeout(() => {
+        this.connected = false;
+        resolve();
+      }, 500);
     });
   }
 
   async fetchSleepEvents(): Promise<SleepEvent[]> {
-    // Simulate network delay
-    return new Promise((resolve) => {
+    if (!this.connected) {
+      await this.connect();
+    }
+
+    return new Promise((resolve, reject) => {
       setTimeout(() => {
-        resolve(this.mockEvents);
+        try {
+          resolve([...this.mockEvents].sort((a, b) => b.timestamp - a.timestamp));
+        } catch (error) {
+          reject(error);
+        }
       }, 800);
     });
   }
@@ -212,8 +236,47 @@ export class MockBLEService {
     this.mockEvents.push(event);
   }
 
+  async deleteEvent(eventId: string): Promise<boolean> {
+    const before = this.mockEvents.length;
+    this.mockEvents = this.mockEvents.filter((event) => event.id !== eventId);
+    return this.mockEvents.length < before;
+  }
+
+  async clearEvents(): Promise<void> {
+    this.mockEvents = [];
+  }
+
+  async saveDeviceSettings(settings: DeviceSettings): Promise<DeviceSettings> {
+    if (
+      !Number.isFinite(settings.snoreThreshold) ||
+      settings.snoreThreshold < 1 ||
+      settings.snoreThreshold > 10
+    ) {
+      throw new Error('Snore threshold must be between 1 and 10');
+    }
+
+    if (
+      !Number.isFinite(settings.pumpDuration) ||
+      settings.pumpDuration < 5 ||
+      settings.pumpDuration > 30
+    ) {
+      throw new Error('Pump duration must be between 5 and 30 seconds');
+    }
+
+    this.settings = {
+      snoreThreshold: Math.round(settings.snoreThreshold),
+      pumpDuration: Math.round(settings.pumpDuration),
+    };
+
+    return { ...this.settings };
+  }
+
+  getDeviceSettings(): DeviceSettings {
+    return { ...this.settings };
+  }
+
   getIsConnected(): boolean {
-    return true;
+    return this.connected;
   }
 }
 
