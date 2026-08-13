@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
-  Animated,
   PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -75,8 +74,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   });
 
   const { connected, pairedDevice } = useDevice();
-  const tabOpacity = useRef(new Animated.Value(1)).current;
-  const tabTranslateX = useRef(new Animated.Value(0)).current;
   const activeTabRef = useRef<DashboardTab>(activeTab);
 
   useEffect(() => {
@@ -97,32 +94,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     setLogsPage(0);
   }, [sortOption, dateRange.from, dateRange.to, activeFilter]);
 
-  const animateTabChange = (nextTab: DashboardTab, direction: 1 | -1 = 1) => {
+  const switchTab = (nextTab: DashboardTab) => {
     if (nextTab === activeTabRef.current) return;
-
-    Animated.parallel([
-      Animated.timing(tabOpacity, { toValue: 0, duration: 110, useNativeDriver: true }),
-      Animated.timing(tabTranslateX, {
-        toValue: -14 * direction,
-        duration: 110,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setActiveTab(nextTab);
-      activeTabRef.current = nextTab;
-      tabTranslateX.setValue(14 * direction);
-      Animated.parallel([
-        Animated.timing(tabOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-        Animated.timing(tabTranslateX, { toValue: 0, duration: 220, useNativeDriver: true }),
-      ]).start();
-    });
+    setActiveTab(nextTab);
+    activeTabRef.current = nextTab;
   };
 
   const goToAdjacentTab = (direction: 1 | -1) => {
     const index = TAB_ORDER.indexOf(activeTabRef.current);
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= TAB_ORDER.length) return;
-    animateTabChange(TAB_ORDER[nextIndex], direction);
+    switchTab(TAB_ORDER[nextIndex]);
   };
 
   const panResponder = useMemo(
@@ -459,7 +441,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         <View style={styles.tabContainer}>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'analytics' && styles.tabButtonActive]}
-            onPress={() => animateTabChange('analytics')}
+            onPress={() => switchTab('analytics')}
             activeOpacity={0.8}
           >
             <FontAwesome5
@@ -474,7 +456,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'recommendations' && styles.tabButtonActive]}
-            onPress={() => animateTabChange('recommendations')}
+            onPress={() => switchTab('recommendations')}
             activeOpacity={0.8}
           >
             <FontAwesome5
@@ -491,7 +473,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.tabButton, activeTab === 'logs' && styles.tabButtonActive]}
-            onPress={() => animateTabChange('logs')}
+            onPress={() => switchTab('logs')}
             activeOpacity={0.8}
           >
             <FontAwesome5
@@ -506,13 +488,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
 
         <Text style={styles.swipeHint}>Swipe left or right to switch tabs</Text>
 
-        <Animated.View
-          {...panResponder.panHandlers}
-          style={{
-            opacity: tabOpacity,
-            transform: [{ translateX: tabTranslateX }],
-          }}
-        >
+        <View {...panResponder.panHandlers}>
           {activeTab === 'analytics' ? (
             <>
               <View style={styles.metricsSection}>
@@ -771,7 +747,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
               </GlassCard>
             </View>
           )}
-        </Animated.View>
+        </View>
 
         <View style={styles.footerContainer}>
           <FontAwesome5 name="sync" size={10} color="#6b7280" style={{ marginRight: 6 }} />

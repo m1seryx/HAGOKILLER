@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -14,7 +14,6 @@ import { DashboardScreen } from './src/screens/DashboardScreen';
 import { LogsScreen } from './src/screens/LogsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
-import { AnimatedTabScene } from './src/components/AnimatedTabScene';
 import { UserContext } from './src/context/UserContext';
 import { DeviceProvider } from './src/context/DeviceContext';
 import { UserProfile } from './src/types';
@@ -38,24 +37,12 @@ const Tab = createBottomTabNavigator();
 
 const DashboardTabScreen = () => {
   const { userName, userProfile } = React.useContext(UserContext);
-  return (
-    <AnimatedTabScene>
-      <DashboardScreen userName={userName} userProfile={userProfile} />
-    </AnimatedTabScene>
-  );
+  return <DashboardScreen userName={userName} userProfile={userProfile} />;
 };
 
-const LogsTabScreen = () => (
-  <AnimatedTabScene>
-    <LogsScreen />
-  </AnimatedTabScene>
-);
+const LogsTabScreen = () => <LogsScreen />;
 
-const SettingsTabScreen = () => (
-  <AnimatedTabScene>
-    <SettingsScreen />
-  </AnimatedTabScene>
-);
+const SettingsTabScreen = () => <SettingsScreen />;
 
 const TabIcon = ({
   name,
@@ -67,20 +54,8 @@ const TabIcon = ({
   focused: boolean;
 }) => (
   <View style={[styles.tabIconWell, focused && styles.tabIconWellActive]}>
-    <FontAwesome5 name={name} color={color} size={15} solid />
+    <FontAwesome5 name={name} color={color} size={16} solid />
   </View>
-);
-
-const TabLabel = ({
-  label,
-  color,
-  focused,
-}: {
-  label: string;
-  color: string;
-  focused: boolean;
-}) => (
-  <Text style={[styles.tabLabel, { color }, focused && styles.tabLabelActive]}>{label}</Text>
 );
 
 const MainTabs = () => (
@@ -88,7 +63,7 @@ const MainTabs = () => (
     screenOptions={{
       headerShown: false,
       lazy: true,
-      tabBarShowLabel: true,
+      tabBarShowLabel: false,
       tabBarHideOnKeyboard: true,
       tabBarStyle: {
         backgroundColor: 'rgba(12, 13, 20, 0.98)',
@@ -100,7 +75,7 @@ const MainTabs = () => (
         shadowOpacity: 0,
       },
       tabBarItemStyle: {
-        paddingVertical: 2,
+        paddingVertical: 6,
       },
       tabBarActiveTintColor: '#a5b4fc',
       tabBarInactiveTintColor: '#6b7280',
@@ -110,9 +85,6 @@ const MainTabs = () => (
       name="DashboardTab"
       component={DashboardTabScreen}
       options={{
-        tabBarLabel: ({ color, focused }) => (
-          <TabLabel label="Dashboard" color={color} focused={focused} />
-        ),
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="chart-pie" color={color} focused={focused} />
         ),
@@ -122,9 +94,6 @@ const MainTabs = () => (
       name="LogsTab"
       component={LogsTabScreen}
       options={{
-        tabBarLabel: ({ color, focused }) => (
-          <TabLabel label="Logs" color={color} focused={focused} />
-        ),
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="clipboard-list" color={color} focused={focused} />
         ),
@@ -134,9 +103,6 @@ const MainTabs = () => (
       name="SettingsTab"
       component={SettingsTabScreen}
       options={{
-        tabBarLabel: ({ color, focused }) => (
-          <TabLabel label="Settings" color={color} focused={focused} />
-        ),
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="cog" color={color} focused={focused} />
         ),
@@ -282,23 +248,13 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0b10' },
   tabIconWell: {
-    width: 42,
-    height: 30,
+    width: 44,
+    height: 32,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
   tabIconWellActive: {
     backgroundColor: 'rgba(99, 102, 241, 0.22)',
-  },
-  tabLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-    marginTop: 4,
-    marginBottom: 2,
-  },
-  tabLabelActive: {
-    fontWeight: '800',
   },
 });
