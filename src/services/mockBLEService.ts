@@ -1,6 +1,8 @@
-import { SleepEvent, DashboardData, DailyStats } from '../types';
+import { SleepEvent, DashboardData, DailyStats, BLEDevice } from '../types';
 import moment from 'moment';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
+import { isValidPairingPin } from '../utils/pinValidation';
+import { loadPairedDevice, savePairedDevice, setDevicePaired } from './userStorage';
 
 export interface DeviceSettings {
   snoreThreshold: number;
@@ -189,38 +191,195 @@ export const calculateDashboardData = (events: SleepEvent[]): DashboardData => {
   };
 };
 
-// Simulated BLE service (to be replaced with actual BLE communication)
+/**
+ * BLE manager for the smart pillow.
+ * React Native supports real Bluetooth via `react-native-ble-plx` in a
+ * development/production build (not Expo Go). This prototype uses a mock
+ * GATT layer with the same pair / connect / disconnect API.
+ */
 export class MockBLEService {
   private mockEvents: SleepEvent[] = generateMockSleepEvents();
   private connected = false;
+  private pairedDevice: BLEDevice | null = null;
+  private listeners = new Set<() => void>();
+  private eventListeners = new Set<(event: SleepEvent) => void>();
+  private liveTimer: ReturnType<typeof setInterval> | null = null;
+  private liveTimeout: ReturnType<typeof setTimeout> | null = null;
   private settings: DeviceSettings = {
     snoreThreshold: 3,
     pumpDuration: 12,
   };
 
-  async connect(): Promise<boolean> {
+  private nearbyDevices: BLEDevice[] = [
+    {
+      id: 'esp32-pillow-001',
+      name: 'SmartPillow-ESP32',
+      bleAddress: 'A4:CF:12:8B:44:01',
+      isConnected: false,
+      signalStrength: -48,
+    },
+    {
+      id: 'esp32-pillow-002',
+      name: 'HAGOKILLER Pillow',
+      bleAddress: 'A4:CF:12:8B:44:19',
+      isConnected: false,
+      signalStrength: -62,
+    },
+  ];
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  subscribeEvents(listener: (event: SleepEvent) => void): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  private notify() {
+    this.listeners.forEach((listener) => listener());
+  }
+
+  private createLiveSnoreEvent(): SleepEvent {
+    const roll = Date.now() % 10;
+    const severity: SleepEvent['severity'] = roll < 5 ? 'low' : roll < 8 ? 'medium' : 'high';
+    const duration = 18 + (Date.now() % 42);
+    const triggered = severity !== 'low';
+    return {
+      id: `live-${Date.now()}`,
+      timestamp: Date.now(),
+      duration,
+      severity,
+      interventionTriggered: triggered,
+      interventionDuration: triggered ? this.settings.pumpDuration : 0,
+    };
+  }
+
+  private emitLiveEvent() {
+    if (!this.connected) return;
+    const event = this.createLiveSnoreEvent();
+    this.mockEvents.unshift(event);
+    this.eventListeners.forEach((listener) => listener(event));
+    this.notify();
+  }
+
+  private startLiveMonitoring() {
+    this.stopLiveMonitoring();
+    this.liveTimeout = setTimeout(() => {
+      this.emitLiveEvent();
+      this.liveTimer = setInterval(() => this.emitLiveEvent(), 45000);
+    }, 8000);
+  }
+
+  private stopLiveMonitoring() {
+    if (this.liveTimeout) {
+      clearTimeout(this.liveTimeout);
+      this.liveTimeout = null;
+    }
+    if (this.liveTimer) {
+      clearInterval(this.liveTimer);
+      this.liveTimer = null;
+    }
+  }
+
+  async restoreSession(): Promise<void> {
+    const saved = await loadPairedDevice();
+    if (saved) {
+      this.pairedDevice = {
+        ...saved,
+        isConnected: this.connected,
+      };
+      this.notify();
+    }
+  }
+
+  async scanForDevices(): Promise<BLEDevice[]> {
     return new Promise((resolve) => {
       setTimeout(() => {
+        resolve(
+          this.nearbyDevices.map((device) => ({
+            ...device,
+            isConnected: this.connected && this.pairedDevice?.id === device.id,
+          })),
+        );
+      }, 900);
+    });
+  }
+
+  async pair(device: BLEDevice, pin: string): Promise<BLEDevice> {
+    if (!isValidPairingPin(pin)) {
+      throw new Error('Enter the 7-digit PIN from your pillow label.');
+    }
+
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (pin !== '1234567' && pin !== '0000000') {
+          reject(new Error('Incorrect PIN. Check the sticker under the pillow.'));
+          return;
+        }
+
         this.connected = true;
+        this.pairedDevice = { ...device, isConnected: true };
+        savePairedDevice({
+          id: device.id,
+          name: device.name,
+          bleAddress: device.bleAddress,
+          signalStrength: device.signalStrength,
+        }).catch(() => undefined);
+        this.startLiveMonitoring();
+        this.notify();
+        resolve(this.pairedDevice);
+      }, 900);
+    });
+  }
+
+  async connect(): Promise<boolean> {
+    if (!this.pairedDevice) {
+      await this.restoreSession();
+    }
+
+    return new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (!this.pairedDevice) {
+          reject(new Error('No paired pillow. Pair a device first.'));
+          return;
+        }
+        this.connected = true;
+        this.pairedDevice = { ...this.pairedDevice, isConnected: true };
+        this.startLiveMonitoring();
+        this.notify();
         resolve(true);
-      }, 1000);
+      }, 700);
     });
   }
 
   async disconnect(): Promise<void> {
     return new Promise((resolve) => {
       setTimeout(() => {
+        this.stopLiveMonitoring();
         this.connected = false;
+        if (this.pairedDevice) {
+          this.pairedDevice = { ...this.pairedDevice, isConnected: false };
+        }
+        this.notify();
         resolve();
-      }, 500);
+      }, 400);
     });
   }
 
-  async fetchSleepEvents(): Promise<SleepEvent[]> {
-    if (!this.connected) {
-      await this.connect();
-    }
+  async unpair(): Promise<void> {
+    await this.disconnect();
+    this.pairedDevice = null;
+    await setDevicePaired(false);
+    this.notify();
+  }
 
+  getPairedDevice(): BLEDevice | null {
+    return this.pairedDevice ? { ...this.pairedDevice, isConnected: this.connected } : null;
+  }
+
+  async fetchSleepEvents(): Promise<SleepEvent[]> {
     return new Promise((resolve, reject) => {
       setTimeout(() => {
         try {
@@ -278,7 +437,14 @@ export class MockBLEService {
   getIsConnected(): boolean {
     return this.connected;
   }
+
+  isPaired(): boolean {
+    return this.pairedDevice !== null;
+  }
 }
+
+/** Shared BLE session so Settings, Dashboard, and pairing stay in sync. */
+export const bleService = new MockBLEService();
 
 // Get sample recommendations based on current data
 export const getSampleRecommendations = () => {

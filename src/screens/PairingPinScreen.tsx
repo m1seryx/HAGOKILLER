@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { FontAwesome5 } from "@expo/vector-icons";
 import { isValidPairingPin } from "../utils/pinValidation";
+import { bleService } from "../services/mockBLEService";
 
 interface PairingPinScreenProps {
   onPinSubmit: (pin: string) => void;
@@ -43,10 +44,19 @@ export const PairingPinScreen: React.FC<PairingPinScreenProps> = ({
 
     setError("");
     setConnecting(true);
-    // Brief delay so users see pairing feedback before navigating
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    setConnecting(false);
-    onPinSubmit(pin);
+    try {
+      const devices = await bleService.scanForDevices();
+      const target = devices[0];
+      if (!target) {
+        throw new Error("No smart pillow found nearby.");
+      }
+      await bleService.pair(target, pin);
+      onPinSubmit(pin);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Pairing failed. Try again.");
+    } finally {
+      setConnecting(false);
+    }
   };
 
   const digits = pin.split("");
@@ -68,7 +78,7 @@ export const PairingPinScreen: React.FC<PairingPinScreenProps> = ({
           <Text style={styles.title}>Connect Your Pillow</Text>
           <Text style={styles.subtitle}>
             Find the 7-digit PIN on the sticker under your smart pillow, then
-            enter it below.
+            enter it below. Demo PIN: 1234567
           </Text>
         </View>
 
@@ -138,7 +148,20 @@ export const PairingPinScreen: React.FC<PairingPinScreenProps> = ({
         {onSkipDemo ? (
           <TouchableOpacity
             style={styles.skipButton}
-            onPress={onSkipDemo}
+            onPress={async () => {
+              setConnecting(true);
+              try {
+                const devices = await bleService.scanForDevices();
+                if (devices[0]) {
+                  await bleService.pair(devices[0], "1234567");
+                }
+              } catch (_) {
+                // Demo still continues
+              } finally {
+                setConnecting(false);
+                onSkipDemo();
+              }
+            }}
             disabled={connecting}
           >
             <Text style={styles.skipText}>Continue without device (demo)</Text>

@@ -42,14 +42,18 @@ export interface RecommendationData {
 export interface BLEDevice {
   id: string;
   name: string;
+  bleAddress: string;
   isConnected: boolean;
   signalStrength: number;
 }
+
+export type BLEConnectionStatus = 'disconnected' | 'scanning' | 'connecting' | 'connected';
 
 export interface UserProfile {
   name: string;
   birthdate?: string | null; // YYYY-MM-DD
   sleepGoalHours?: number | null;
+  photoUri?: string | null;
   createdAt?: number;
   updatedAt?: number;
 }

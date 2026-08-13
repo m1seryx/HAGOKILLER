@@ -26,10 +26,10 @@ import { SnorePatternsChart } from '../components/SnorePatternsChart';
 import { RecommendationCard } from '../components/RecommendationCard';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
-import { ConfirmModal } from '../components/ConfirmModal';
-import { calculateDashboardData, MockBLEService } from '../services/mockBLEService';
+import { ProfileAvatar } from '../components/ProfileAvatar';
+import { calculateDashboardData, bleService } from '../services/mockBLEService';
+import { useDevice } from '../context/DeviceContext';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 
 interface DashboardScreenProps {
   userName: string;
@@ -40,7 +40,18 @@ const LOGS_PER_PAGE = 10;
 const TAB_ORDER = ['analytics', 'recommendations', 'logs'] as const;
 type DashboardTab = (typeof TAB_ORDER)[number];
 
-export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) => {
+const getLogSeverityStyle = (severity: string) => {
+  switch (severity) {
+    case 'high':
+      return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.14)', label: 'High' };
+    case 'medium':
+      return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)', label: 'Medium' };
+    default:
+      return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.14)', label: 'Low' };
+  }
+};
+
+export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, userProfile }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,7 +61,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const [eventLogs, setEventLogs] = useState<SleepEvent[]>([]);
   const [sortOption, setSortOption] = useState<'date' | 'severity' | 'duration'>('date');
   const [logsPage, setLogsPage] = useState(0);
-  const [clearConfirmVisible, setClearConfirmVisible] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState({
     connected: false,
     mode: 'Connecting…',
@@ -64,8 +74,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
     to: moment().format('YYYY-MM-DD'),
   });
 
-  const navigation = useNavigation<any>();
-  const bleService = useRef(new MockBLEService()).current;
+  const { connected, pairedDevice } = useDevice();
   const tabOpacity = useRef(new Animated.Value(1)).current;
   const tabTranslateX = useRef(new Animated.Value(0)).current;
   const activeTabRef = useRef<DashboardTab>(activeTab);
@@ -76,6 +85,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
 
   useEffect(() => {
     loadData();
+    return bleService.subscribeEvents((event) => {
+      setEventLogs((current) => [event, ...current]);
+      setDashboardData((current) =>
+        calculateDashboardData([event, ...(current?.allData ?? [])]),
+      );
+    });
   }, []);
 
   useEffect(() => {
@@ -126,7 +141,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const loadData = async () => {
     try {
       setLoading(true);
-      await bleService.connect();
+      await bleService.restoreSession();
+      if (bleService.isPaired() && !bleService.getIsConnected()) {
+        try {
+          await bleService.connect();
+        } catch (_) {
+          // Keep last synced data if reconnect fails
+        }
+      }
       const events = await bleService.fetchSleepEvents();
       setEventLogs(events);
       const data = calculateDashboardData(events);
@@ -144,13 +166,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
           months.length >= 3 ? calculateTrend(months.slice(0, 2)) : 'stable';
       }
       setMonthHistory(months);
+      const device = bleService.getPairedDevice();
       setDeviceStatus({
         connected: bleService.getIsConnected(),
-        mode: 'Monitoring',
-        signal: 'Strong',
+        mode: bleService.getIsConnected() ? 'Monitoring' : 'Offline',
+        signal: device ? `${device.signalStrength} dBm` : '—',
         battery: 82,
-        pairingStatus: 'Aligned',
-        lastSeen: 'just now',
+        pairingStatus: device ? 'Aligned' : 'Not paired',
+        lastSeen: bleService.getIsConnected() ? 'just now' : 'offline',
       });
     } catch (error) {
       console.error('Error loading data:', error);
@@ -344,25 +367,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
       });
   };
 
-  const handleDeleteLog = async (id: string) => {
-    await bleService.deleteEvent(id);
-    setEventLogs((current) => current.filter((entry) => entry.id !== id));
-    setDashboardData((current) =>
-      current
-        ? calculateDashboardData(current.allData.filter((entry) => entry.id !== id))
-        : current,
-    );
-  };
-
-  const handleClearLogs = async () => {
-    setClearConfirmVisible(false);
-    await bleService.clearEvents();
-    setEventLogs([]);
-    setDashboardData((current) =>
-      current ? { ...calculateDashboardData([]), allData: [] } : current,
-    );
-  };
-
   const visibleLogs = getFilteredAndSortedLogs();
   const logCount = visibleLogs.length;
   const totalLogPages = Math.max(1, Math.ceil(logCount / LOGS_PER_PAGE));
@@ -380,14 +384,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
   const severityColor = getSeverityColor(stats.severity);
   const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
   const lowBattery = deviceStatus.battery <= 20;
-  const pairingIssue = deviceStatus.pairingStatus !== 'Aligned';
   const activeAlerts = [
-    deviceStatus.connected && lowBattery ? 'Low battery detected' : null,
-    deviceStatus.connected && pairingIssue ? 'Pairing needs alignment' : null,
+    !connected ? (pairedDevice ? 'Pillow disconnected — reconnect in Settings' : 'No pillow paired') : null,
+    connected && lowBattery ? 'Low battery detected' : null,
     stats.severity === 'danger' ? 'Elevated snoring risk detected' : null,
   ].filter(Boolean) as string[];
-
-  const initials = userName ? userName.trim().charAt(0).toUpperCase() : 'U';
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -409,18 +410,23 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
                   {getSeverityLabel(stats.severity)}
                 </Text>
               </View>
-              <Text style={styles.headerSubtitle}>{moment().format('dddd, MMMM D, YYYY')}</Text>
+              <Text style={styles.headerSubtitle}>
+                {moment().format('dddd, MMMM D, YYYY')} ·{' '}
+                {connected
+                  ? `Linked to ${pairedDevice?.name || 'pillow'}`
+                  : pairedDevice
+                    ? 'Pillow offline'
+                    : 'No device paired'}
+              </Text>
             </View>
-            <TouchableOpacity
-              style={styles.profileButton}
-              onPress={() => navigation.navigate('Profile')}
-              activeOpacity={0.85}
-            >
-              <View style={styles.profileAvatar}>
-                <Text style={styles.profileInitial}>{initials}</Text>
-              </View>
-              <FontAwesome5 name="user" size={10} color="#c7d2fe" style={styles.profileBadge} />
-            </TouchableOpacity>
+            <View style={styles.profileButton}>
+              <ProfileAvatar
+                name={userName}
+                photoUri={userProfile?.photoUri}
+                size={48}
+                radius={14}
+              />
+            </View>
           </View>
         </View>
 
@@ -656,7 +662,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
             <View style={styles.logsSection}>
               <GlassCard style={styles.logsCard}>
                 <View style={styles.logsHeader}>
-                  <View style={{ flex: 1, paddingRight: 10 }}>
+                  <View style={{ flex: 1 }}>
                     <Text style={styles.sectionHeader}>Sleep Event Logs</Text>
                     <Text style={styles.settingDescription}>
                       {logCount === 0
@@ -664,12 +670,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
                         : `Showing ${logRangeStart}–${logRangeEnd} of ${logCount}`}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.clearButton}
-                    onPress={() => setClearConfirmVisible(true)}
-                  >
-                    <Text style={styles.clearButtonText}>Clear History</Text>
-                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.sortRow}>
@@ -700,26 +700,40 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
                   </View>
                 ) : (
                   <>
-                    {paginatedLogs.map((entry) => (
-                      <View key={entry.id} style={styles.logRow}>
-                        <View style={styles.logContent}>
-                          <Text style={styles.logTimestamp}>
-                            {moment(entry.timestamp).format('MMM D, h:mm A')}
-                          </Text>
-                          <Text style={styles.logDetails}>
-                            {entry.severity.charAt(0).toUpperCase() + entry.severity.slice(1)} severity ·{' '}
-                            {entry.duration}s · Intervention{' '}
-                            {entry.interventionTriggered ? 'Yes' : 'No'}
-                          </Text>
+                    {paginatedLogs.map((entry) => {
+                      const sev = getLogSeverityStyle(entry.severity);
+                      const inflated = entry.interventionTriggered;
+                      return (
+                        <View key={entry.id} style={styles.logRow}>
+                          <View
+                            style={[
+                              styles.logIconWrap,
+                              { backgroundColor: inflated ? 'rgba(99,102,241,0.16)' : sev.bg },
+                            ]}
+                          >
+                            <FontAwesome5
+                              name={inflated ? 'wind' : 'wave-square'}
+                              size={13}
+                              color={inflated ? '#818cf8' : sev.color}
+                            />
+                          </View>
+                          <View style={styles.logContent}>
+                            <Text style={styles.logTimestamp}>
+                              {inflated ? 'Pillow inflated' : 'Snore detected'}
+                            </Text>
+                            <Text style={styles.logDetails}>
+                              {moment(entry.timestamp).format('MMM D · h:mm A')}
+                            </Text>
+                          </View>
+                          <View style={styles.logRight}>
+                            <View style={[styles.severityPill, { backgroundColor: sev.bg }]}>
+                              <Text style={[styles.severityText, { color: sev.color }]}>{sev.label}</Text>
+                            </View>
+                            <Text style={styles.logDuration}>{entry.duration}s</Text>
+                          </View>
                         </View>
-                        <TouchableOpacity
-                          onPress={() => handleDeleteLog(entry.id)}
-                          style={styles.deleteIconButton}
-                        >
-                          <FontAwesome5 name="trash-alt" size={14} color="#ef4444" />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
+                      );
+                    })}
 
                     {totalLogPages > 1 ? (
                       <View style={styles.paginationRow}>
@@ -762,22 +776,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName }) =>
         <View style={styles.footerContainer}>
           <FontAwesome5 name="sync" size={10} color="#6b7280" style={{ marginRight: 6 }} />
           <Text style={styles.footerText}>
-            System synced: {moment(dashboardData.allData[0]?.timestamp).fromNow()}
+            System synced:{' '}
+            {dashboardData.allData[0]?.timestamp
+              ? moment(dashboardData.allData[0].timestamp).fromNow()
+              : '—'}
           </Text>
         </View>
 
         <View style={{ height: 40 }} />
       </ScrollView>
-
-      <ConfirmModal
-        visible={clearConfirmVisible}
-        title="Clear sleep history?"
-        message="This will permanently remove all sleep event logs from this device. This action cannot be undone."
-        confirmLabel="Clear All"
-        destructive
-        onConfirm={handleClearLogs}
-        onCancel={() => setClearConfirmVisible(false)}
-      />
     </SafeAreaView>
   );
 };
@@ -847,18 +854,6 @@ const styles = StyleSheet.create({
   statusValue: { fontSize: 13, fontWeight: '700' },
   headerSubtitle: { fontSize: 12, color: '#6b7280' },
   profileButton: { alignItems: 'center', justifyContent: 'center' },
-  profileAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(99, 102, 241, 0.28)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(165, 180, 252, 0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  profileInitial: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
-  profileBadge: { position: 'absolute', bottom: -2, right: -2 },
 
   alertBanner: { marginHorizontal: 16, marginBottom: 12, padding: 14 },
   alertRow: { flexDirection: 'row', alignItems: 'flex-start' },
@@ -955,20 +950,8 @@ const styles = StyleSheet.create({
   sectionHeader: { fontSize: 16, fontWeight: '700', color: '#ffffff', marginBottom: 6 },
   settingDescription: { fontSize: 12, color: '#9ca3af', marginBottom: 4, lineHeight: 18 },
   logsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginBottom: 14,
   },
-  clearButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ef4444',
-    backgroundColor: 'rgba(239,68,68,0.08)',
-  },
-  clearButtonText: { color: '#ef4444', fontSize: 12, fontWeight: '700' },
   sortRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   sortLabel: { color: '#9ca3af', fontSize: 12, fontWeight: '600', marginRight: 4 },
   sortOption: {
@@ -990,21 +973,33 @@ const styles = StyleSheet.create({
   logRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
   },
-  logContent: { flex: 1, paddingRight: 10 },
-  logTimestamp: { color: '#e5e7eb', fontSize: 13, fontWeight: '700', marginBottom: 2 },
-  logDetails: { color: '#9ca3af', fontSize: 12, lineHeight: 17 },
-  deleteIconButton: {
+  logIconWrap: {
     width: 36,
     height: 36,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(239,68,68,0.08)',
+    marginRight: 12,
   },
+  logContent: { flex: 1, paddingRight: 8 },
+  logTimestamp: { color: '#f8fafc', fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  logDetails: { color: '#94a3b8', fontSize: 12, lineHeight: 17 },
+  logRight: { alignItems: 'flex-end' },
+  severityPill: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginBottom: 6,
+  },
+  severityText: { fontSize: 11, fontWeight: '800' },
+  logDuration: { color: '#e5e7eb', fontSize: 13, fontWeight: '700' },
   paginationRow: {
     flexDirection: 'row',
     alignItems: 'center',

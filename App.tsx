@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -16,7 +16,14 @@ import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { AnimatedTabScene } from './src/components/AnimatedTabScene';
 import { UserContext } from './src/context/UserContext';
+import { DeviceProvider } from './src/context/DeviceContext';
 import { UserProfile } from './src/types';
+import { bleService } from './src/services/mockBLEService';
+import {
+  hydrateNotificationPref,
+  setupSnoreNotifications,
+  notifySnoreDetected,
+} from './src/services/snoreNotifications';
 import {
   saveUserProfile,
   loadUserProfile,
@@ -50,34 +57,64 @@ const SettingsTabScreen = () => (
   </AnimatedTabScene>
 );
 
+const TabIcon = ({
+  name,
+  color,
+  focused,
+}: {
+  name: React.ComponentProps<typeof FontAwesome5>['name'];
+  color: string;
+  focused: boolean;
+}) => (
+  <View style={[styles.tabIconWell, focused && styles.tabIconWellActive]}>
+    <FontAwesome5 name={name} color={color} size={15} solid />
+  </View>
+);
+
+const TabLabel = ({
+  label,
+  color,
+  focused,
+}: {
+  label: string;
+  color: string;
+  focused: boolean;
+}) => (
+  <Text style={[styles.tabLabel, { color }, focused && styles.tabLabelActive]}>{label}</Text>
+);
+
 const MainTabs = () => (
   <Tab.Navigator
     screenOptions={{
       headerShown: false,
       lazy: true,
+      tabBarShowLabel: true,
+      tabBarHideOnKeyboard: true,
       tabBarStyle: {
-        backgroundColor: 'rgba(17, 18, 25, 0.96)',
+        backgroundColor: 'rgba(12, 13, 20, 0.98)',
         borderTopColor: 'rgba(255,255,255,0.08)',
-        borderTopWidth: 1,
-        paddingBottom: 6,
-        paddingTop: 6,
-        height: 64,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        paddingTop: 8,
+        paddingHorizontal: 10,
+        elevation: 0,
+        shadowOpacity: 0,
       },
-      tabBarActiveTintColor: '#6366f1',
+      tabBarItemStyle: {
+        paddingVertical: 2,
+      },
+      tabBarActiveTintColor: '#a5b4fc',
       tabBarInactiveTintColor: '#6b7280',
-      tabBarLabelStyle: {
-        fontSize: 11,
-        fontWeight: '600',
-      },
     }}
   >
     <Tab.Screen
       name="DashboardTab"
       component={DashboardTabScreen}
       options={{
-        tabBarLabel: 'Dashboard',
-        tabBarIcon: ({ color, size }) => (
-          <FontAwesome5 name="chart-pie" color={color} size={size - 4} />
+        tabBarLabel: ({ color, focused }) => (
+          <TabLabel label="Dashboard" color={color} focused={focused} />
+        ),
+        tabBarIcon: ({ color, focused }) => (
+          <TabIcon name="chart-pie" color={color} focused={focused} />
         ),
       }}
     />
@@ -85,9 +122,11 @@ const MainTabs = () => (
       name="LogsTab"
       component={LogsTabScreen}
       options={{
-        tabBarLabel: 'Logs',
-        tabBarIcon: ({ color, size }) => (
-          <FontAwesome5 name="terminal" color={color} size={size - 4} />
+        tabBarLabel: ({ color, focused }) => (
+          <TabLabel label="Logs" color={color} focused={focused} />
+        ),
+        tabBarIcon: ({ color, focused }) => (
+          <TabIcon name="clipboard-list" color={color} focused={focused} />
         ),
       }}
     />
@@ -95,14 +134,31 @@ const MainTabs = () => (
       name="SettingsTab"
       component={SettingsTabScreen}
       options={{
-        tabBarLabel: 'Settings',
-        tabBarIcon: ({ color, size }) => (
-          <FontAwesome5 name="cog" color={color} size={size - 4} />
+        tabBarLabel: ({ color, focused }) => (
+          <TabLabel label="Settings" color={color} focused={focused} />
+        ),
+        tabBarIcon: ({ color, focused }) => (
+          <TabIcon name="cog" color={color} focused={focused} />
         ),
       }}
     />
   </Tab.Navigator>
 );
+
+const SnoreAlertHost = () => {
+  useEffect(() => {
+    hydrateNotificationPref()
+      .then((enabled) => {
+        if (enabled) return setupSnoreNotifications();
+      })
+      .catch(() => undefined);
+
+    return bleService.subscribeEvents((event) => {
+      notifySnoreDetected(event).catch(() => undefined);
+    });
+  }, []);
+  return null;
+};
 
 export default function App() {
   const [userName, setUserName] = useState('');
@@ -174,6 +230,8 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
+      <DeviceProvider>
+      <SnoreAlertHost />
       <UserContext.Provider value={userValue}>
         <View style={styles.container}>
           <NavigationContainer theme={MyTheme}>
@@ -216,10 +274,31 @@ export default function App() {
           </NavigationContainer>
         </View>
       </UserContext.Provider>
+      </DeviceProvider>
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0a0b10' },
+  tabIconWell: {
+    width: 42,
+    height: 30,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIconWellActive: {
+    backgroundColor: 'rgba(99, 102, 241, 0.22)',
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  tabLabelActive: {
+    fontWeight: '800',
+  },
 });

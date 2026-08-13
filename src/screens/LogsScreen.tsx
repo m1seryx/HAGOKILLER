@@ -4,16 +4,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
 import { SleepEvent } from '../types';
-import { generateMockSleepEvents } from '../services/mockBLEService';
+import { bleService } from '../services/mockBLEService';
 import moment from 'moment';
 
 const getSeverityStyle = (severity: string) => {
   switch (severity) {
-    case 'high': return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)', label: 'HIGH' };
-    case 'medium': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.1)', label: 'MED' };
-    default: return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.1)', label: 'LOW' };
+    case 'high': return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.14)', label: 'High' };
+    case 'medium': return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)', label: 'Medium' };
+    default: return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.14)', label: 'Low' };
   }
 };
 
@@ -21,17 +20,27 @@ type FilterType = 'all' | 'snore' | 'intervention';
 const LOGS_PER_PAGE = 10;
 
 export const LogsScreen = () => {
-  const route = useRoute();
-  const paramEvents: SleepEvent[] = (route.params as any)?.events || [];
-  const [events, setEvents] = useState<SleepEvent[]>(paramEvents);
+  const [events, setEvents] = useState<SleepEvent[]>([]);
   const [filter, setFilter] = useState<FilterType>('all');
   const [page, setPage] = useState(0);
 
   useEffect(() => {
-    // If no events passed via params, self-load from mock service
-    if (events.length === 0) {
-      setEvents(generateMockSleepEvents());
-    }
+    let cancelled = false;
+    bleService
+      .fetchSleepEvents()
+      .then((next) => {
+        if (!cancelled) setEvents(next);
+      })
+      .catch(() => undefined);
+
+    const unsubscribe = bleService.subscribeEvents((event) => {
+      if (!cancelled) setEvents((current) => [event, ...current]);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -53,51 +62,40 @@ export const LogsScreen = () => {
   const rangeStart = filteredEvents.length === 0 ? 0 : currentPage * LOGS_PER_PAGE + 1;
   const rangeEnd = Math.min(filteredEvents.length, (currentPage + 1) * LOGS_PER_PAGE);
 
-  const renderLogItem = ({ item, index }: { item: SleepEvent; index: number }) => {
+  const renderLogItem = ({ item }: { item: SleepEvent }) => {
     const sev = getSeverityStyle(item.severity);
     const isIntervention = item.interventionTriggered;
-    const dateStr = moment(item.timestamp).format('MMM DD');
-    const timeStr = moment(item.timestamp).format('hh:mm:ss A');
 
     return (
-      <View style={styles.logRow}>
-        {/* Index column */}
-        <Text style={styles.indexText}>{String(index + 1).padStart(3, '0')}</Text>
-
-        {/* Timestamp column */}
-        <View style={styles.timestampCol}>
-          <Text style={styles.dateText}>{dateStr}</Text>
-          <Text style={styles.timeText}>{timeStr}</Text>
-        </View>
-
-        {/* Event type */}
-        <View style={[styles.typeBadge, { backgroundColor: isIntervention ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255,255,255,0.04)' }]}>
+      <View style={styles.logCard}>
+        <View style={[styles.iconWrap, { backgroundColor: isIntervention ? 'rgba(99,102,241,0.16)' : sev.bg }]}>
           <FontAwesome5
             name={isIntervention ? 'wind' : 'wave-square'}
-            size={10}
-            color={isIntervention ? '#6366f1' : sev.color}
+            size={14}
+            color={isIntervention ? '#818cf8' : sev.color}
           />
-          <Text style={[styles.typeText, { color: isIntervention ? '#818cf8' : '#9ca3af' }]}>
-            {isIntervention ? 'INFLATE' : 'SNORE'}
-          </Text>
         </View>
-
-        {/* Severity badge */}
-        <View style={[styles.severityBadge, { backgroundColor: sev.bg }]}>
-          <Text style={[styles.severityText, { color: sev.color }]}>{sev.label}</Text>
+        <View style={styles.logBody}>
+          <Text style={styles.logTitle}>{isIntervention ? 'Pillow inflated' : 'Snore detected'}</Text>
+          <Text style={styles.logMeta}>{moment(item.timestamp).format('ddd, MMM D · h:mm A')}</Text>
         </View>
-
-        {/* Duration */}
-        <Text style={styles.durationText}>{item.duration}s</Text>
+        <View style={styles.logRight}>
+          <View style={[styles.severityPill, { backgroundColor: sev.bg }]}>
+            <Text style={[styles.severityText, { color: sev.color }]}>{sev.label}</Text>
+          </View>
+          <Text style={styles.durationText}>{item.duration}s</Text>
+        </View>
       </View>
     );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerTitleArea}>
+        <View style={styles.headerIcon}>
+          <FontAwesome5 name="clipboard-list" size={16} color="#c7d2fe" />
+        </View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Historical Logs</Text>
           <Text style={styles.headerSubtitle}>
             {filteredEvents.length === 0
@@ -107,37 +105,38 @@ export const LogsScreen = () => {
         </View>
       </View>
 
-      {/* Filter Chips */}
       <View style={styles.filterRow}>
-        {(['all', 'snore', 'intervention'] as FilterType[]).map((f) => (
+        {([
+          { id: 'all', label: 'All' },
+          { id: 'snore', label: 'Snores' },
+          { id: 'intervention', label: 'Inflates' },
+        ] as const).map((item) => (
           <TouchableOpacity
-            key={f}
-            style={[styles.filterChip, filter === f && styles.filterChipActive]}
-            onPress={() => setFilter(f)}
+            key={item.id}
+            style={[styles.filterChip, filter === item.id && styles.filterChipActive]}
+            onPress={() => setFilter(item.id)}
           >
-            <Text style={[styles.filterChipText, filter === f && styles.filterChipTextActive]}>
-              {f === 'all' ? 'All Events' : f === 'snore' ? 'Snore Only' : 'Interventions'}
+            <Text style={[styles.filterChipText, filter === item.id && styles.filterChipTextActive]}>
+              {item.label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Column Headers */}
-      <View style={styles.columnHeader}>
-        <Text style={[styles.colLabel, { width: 36 }]}>#</Text>
-        <Text style={[styles.colLabel, { flex: 1 }]}>TIMESTAMP</Text>
-        <Text style={[styles.colLabel, { width: 80 }]}>TYPE</Text>
-        <Text style={[styles.colLabel, { width: 44 }]}>SEV</Text>
-        <Text style={[styles.colLabel, { width: 40, textAlign: 'right' }]}>DUR</Text>
-      </View>
-
-      {/* Log List */}
       <FlatList
         data={paginatedEvents}
-        renderItem={({ item, index }) => renderLogItem({ item, index: currentPage * LOGS_PER_PAGE + index })}
+        renderItem={renderLogItem}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 16 }}
+        contentContainerStyle={styles.listContent}
+        ListEmptyComponent={
+          <View style={styles.emptyWrap}>
+            <View style={styles.emptyIcon}>
+              <FontAwesome5 name="moon" size={18} color="#818cf8" />
+            </View>
+            <Text style={styles.emptyText}>No events for this filter.</Text>
+          </View>
+        }
         ListFooterComponent={
           totalPages > 1 ? (
             <View style={styles.paginationRow}>
@@ -147,10 +146,10 @@ export const LogsScreen = () => {
                 disabled={currentPage === 0}
               >
                 <FontAwesome5 name="chevron-left" size={12} color="#ffffff" />
-                <Text style={styles.paginationButtonText}>Previous</Text>
+                <Text style={styles.paginationButtonText}>Prev</Text>
               </TouchableOpacity>
               <Text style={styles.paginationLabel}>
-                Page {currentPage + 1} of {totalPages}
+                {currentPage + 1} / {totalPages}
               </Text>
               <TouchableOpacity
                 style={[styles.paginationButton, currentPage >= totalPages - 1 && styles.paginationButtonDisabled]}
@@ -169,182 +168,111 @@ export const LogsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0b10',
-  },
+  container: { flex: 1, backgroundColor: '#0a0b10' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 8,
-    paddingHorizontal: 18,
+    marginTop: 8,
+    marginBottom: 12,
+    paddingHorizontal: 16,
     paddingVertical: 16,
     borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    justifyContent: 'center',
+  headerIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: 'rgba(99, 102, 241, 0.22)',
     alignItems: 'center',
-    marginRight: 16,
+    justifyContent: 'center',
+    marginRight: 12,
   },
-  headerTitleArea: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#9ca3af',
-    fontWeight: '500',
-    marginTop: 2,
-  },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: '#ffffff' },
+  headerSubtitle: { fontSize: 13, color: '#94a3b8', fontWeight: '500', marginTop: 4 },
   filterRow: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   filterChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  filterChipActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
-    borderColor: 'rgba(99, 102, 241, 0.4)',
-  },
-  filterChipText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#6b7280',
-  },
-  filterChipTextActive: {
-    color: '#ffffff',
-  },
-  columnHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
-  },
-  colLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: '#6b7280',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  logRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.03)',
-  },
-  indexText: {
-    width: 36,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#4b5563',
-    fontFamily: 'monospace',
-  },
-  timestampCol: {
     flex: 1,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: 'center',
   },
-  dateText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#e5e7eb',
-  },
-  timeText: {
-    fontSize: 10,
-    color: '#6b7280',
-    fontWeight: '500',
-    marginTop: 1,
-  },
-  typeBadge: {
+  filterChipActive: { backgroundColor: 'rgba(99, 102, 241, 0.28)' },
+  filterChipText: { fontSize: 13, fontWeight: '600', color: '#6b7280' },
+  filterChipTextActive: { color: '#ffffff', fontWeight: '800' },
+  listContent: { paddingHorizontal: 16, paddingBottom: 28 },
+  logCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: 80,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+  },
+  iconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  logBody: { flex: 1, paddingRight: 8 },
+  logTitle: { color: '#f8fafc', fontSize: 14, fontWeight: '700', marginBottom: 3 },
+  logMeta: { color: '#94a3b8', fontSize: 12 },
+  logRight: { alignItems: 'flex-end' },
+  severityPill: {
+    borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: 6,
-    gap: 5,
+    marginBottom: 6,
   },
-  typeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
-  severityBadge: {
-    width: 44,
+  severityText: { fontSize: 11, fontWeight: '800' },
+  durationText: { color: '#e5e7eb', fontSize: 13, fontWeight: '700' },
+  emptyWrap: { alignItems: 'center', marginTop: 48 },
+  emptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: 'rgba(99,102,241,0.16)',
     alignItems: 'center',
-    paddingVertical: 3,
-    borderRadius: 6,
+    justifyContent: 'center',
+    marginBottom: 12,
   },
-  severityText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  durationText: {
-    width: 40,
-    textAlign: 'right',
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#e5e7eb',
-    fontFamily: 'monospace',
-  },
+  emptyText: { color: '#94a3b8', textAlign: 'center', fontSize: 14, fontWeight: '600' },
   paginationRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 24,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
     marginTop: 8,
+    paddingTop: 8,
   },
   paginationButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(99, 102, 241, 0.22)',
     borderWidth: 1,
     borderColor: 'rgba(99, 102, 241, 0.35)',
   },
-  paginationButtonDisabled: {
-    opacity: 0.35,
-  },
-  paginationButtonText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  paginationLabel: {
-    color: '#9ca3af',
-    fontSize: 12,
-    fontWeight: '600',
-  },
+  paginationButtonDisabled: { opacity: 0.35 },
+  paginationButtonText: { color: '#ffffff', fontSize: 13, fontWeight: '700' },
+  paginationLabel: { color: '#9ca3af', fontSize: 13, fontWeight: '700' },
 });

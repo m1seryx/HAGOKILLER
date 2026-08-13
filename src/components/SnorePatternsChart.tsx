@@ -92,7 +92,9 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
       </View>
 
       <View style={styles.chartWrapper}>
-        {chartType === 'line' ? (
+        {weeklyData.length === 0 ? (
+          <Text style={styles.emptyChart}>No snore pattern data yet</Text>
+        ) : chartType === 'line' ? (
           <LineChart
             data={chartData}
             width={chartWidth}
@@ -170,6 +172,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 12,
     overflow: 'hidden',
+    minHeight: 120,
+  },
+  emptyChart: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '600',
+    paddingVertical: 36,
   },
   chart: {
     marginVertical: 4,

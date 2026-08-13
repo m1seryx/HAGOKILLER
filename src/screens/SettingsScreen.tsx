@@ -6,60 +6,77 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  TextInput,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  Switch,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { GlassCard } from '../components/GlassCard';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { MockBLEService } from '../services/mockBLEService';
+import { ProfileAvatar } from '../components/ProfileAvatar';
+import { useDevice } from '../context/DeviceContext';
+import { useUser } from '../context/UserContext';
+import { bleService } from '../services/mockBLEService';
+import {
+  hydrateNotificationPref,
+  setNotificationsEnabled,
+  sendTestNotification,
+} from '../services/snoreNotifications';
+import { BLEDevice } from '../types';
+import { isValidPairingPin } from '../utils/pinValidation';
+
+const PIN_LENGTH = 7;
 
 export const SettingsScreen = () => {
-  const bleService = useRef(new MockBLEService()).current;
+  const navigation = useNavigation<any>();
+  const { userName, userProfile } = useUser();
+  const {
+    connected,
+    pairedDevice,
+    scanning,
+    nearbyDevices,
+    scan,
+    pair,
+    connect,
+    disconnect,
+    unpair,
+  } = useDevice();
+
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [snoreThreshold, setSnoreThreshold] = useState(3);
   const [pumpDuration, setPumpDuration] = useState(12);
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [deviceStatus, setDeviceStatus] = useState({
-    mode: 'Connecting…',
-    signal: '—',
-    battery: 0,
-    pairingStatus: 'Pending',
-    lastSeen: '—',
-  });
+  const [disconnectVisible, setDisconnectVisible] = useState(false);
+  const [unpairVisible, setUnpairVisible] = useState(false);
+  const [pinModalVisible, setPinModalVisible] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState<BLEDevice | null>(null);
+  const [pin, setPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [notificationsOn, setNotificationsOn] = useState(true);
+  const [testingNotif, setTestingNotif] = useState(false);
+  const pinRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        setLoading(true);
-        await bleService.connect();
-        const settings = bleService.getDeviceSettings();
-        setSnoreThreshold(settings.snoreThreshold);
-        setPumpDuration(settings.pumpDuration);
-        setConnected(bleService.getIsConnected());
-        setDeviceStatus({
-          mode: 'Monitoring',
-          signal: 'Strong',
-          battery: 82,
-          pairingStatus: 'Aligned',
-          lastSeen: 'just now',
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [bleService]);
+    const settings = bleService.getDeviceSettings();
+    setSnoreThreshold(settings.snoreThreshold);
+    setPumpDuration(settings.pumpDuration);
+    hydrateNotificationPref()
+      .then(setNotificationsOn)
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleConfirmSave = async () => {
     setConfirmVisible(false);
     try {
-      const saved = await bleService.saveDeviceSettings({
-        snoreThreshold,
-        pumpDuration,
-      });
+      const saved = await bleService.saveDeviceSettings({ snoreThreshold, pumpDuration });
       setSnoreThreshold(saved.snoreThreshold);
       setPumpDuration(saved.pumpDuration);
       setSaveError(false);
@@ -69,6 +86,95 @@ export const SettingsScreen = () => {
       setSaveError(true);
       setSaveMessage(error instanceof Error ? error.message : 'Failed to save settings');
       setTimeout(() => setSaveMessage(''), 3200);
+    }
+  };
+
+  const handleScan = async () => {
+    setBusy(true);
+    try {
+      await scan();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openPinModal = (device: BLEDevice) => {
+    setSelectedDevice(device);
+    setPin('');
+    setPinError('');
+    setPinModalVisible(true);
+  };
+
+  const handlePair = async () => {
+    if (!selectedDevice) return;
+    if (!isValidPairingPin(pin)) {
+      setPinError('Enter all 7 digits from the pillow label.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await pair(selectedDevice, pin);
+      setPinModalVisible(false);
+      setPin('');
+    } catch (error) {
+      setPinError(error instanceof Error ? error.message : 'Pairing failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleConnect = async () => {
+    setBusy(true);
+    try {
+      await connect();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setDisconnectVisible(false);
+    setBusy(true);
+    try {
+      await disconnect();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUnpair = async () => {
+    setUnpairVisible(false);
+    setBusy(true);
+    try {
+      await unpair();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleToggleNotifications = async (next: boolean) => {
+    setNotificationsOn(next);
+    const applied = await setNotificationsEnabled(next);
+    if (next && !applied) {
+      setNotificationsOn(false);
+      Alert.alert(
+        'Permission needed',
+        'Enable notifications in your system settings to receive snore alerts.',
+      );
+    }
+  };
+
+  const handleTestNotification = async () => {
+    setTestingNotif(true);
+    try {
+      await sendTestNotification();
+    } catch (error) {
+      Alert.alert(
+        'Test failed',
+        error instanceof Error ? error.message : 'Could not send a test notification.',
+      );
+    } finally {
+      setTestingNotif(false);
     }
   };
 
@@ -83,41 +189,176 @@ export const SettingsScreen = () => {
     );
   }
 
-  const statusColor = connected ? '#10b981' : '#f59e0b';
+  const statusColor = connected ? '#10b981' : pairedDevice ? '#f59e0b' : '#94a3b8';
+  const statusLabel = connected ? 'Connected' : pairedDevice ? 'Paired · Offline' : 'Not paired';
+  const pinDigits = Array.from({ length: PIN_LENGTH }, (_, i) => pin[i] || '');
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Control pillow behavior and review device status</Text>
+        <Text style={styles.subtitle}>Pair your pillow over Bluetooth, then tune device behavior</Text>
+
+        <TouchableOpacity
+          style={styles.profileCard}
+          onPress={() => navigation.navigate('Profile')}
+          activeOpacity={0.85}
+        >
+          <ProfileAvatar
+            name={userName}
+            photoUri={userProfile?.photoUri}
+            size={56}
+            radius={16}
+          />
+          <View style={styles.profileCopy}>
+            <Text style={styles.profileName}>{userName || 'Guest User'}</Text>
+            <Text style={styles.profileHint}>Edit profile and photo</Text>
+          </View>
+          <FontAwesome5 name="chevron-right" size={14} color="#94a3b8" />
+        </TouchableOpacity>
+
+        <GlassCard style={styles.card}>
+          <View style={styles.deviceTitleRow}>
+            <FontAwesome5 name="bell" size={16} color="#818cf8" />
+            <Text style={styles.cardTitle}>Push notifications</Text>
+          </View>
+          <Text style={styles.cardHint}>
+            Get an alert when your pillow detects snoring. Turn this off to stay silent.
+          </Text>
+          <View style={styles.notifyRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.settingLabel}>Snore alerts</Text>
+              <Text style={styles.settingHint}>
+                {notificationsOn ? 'Notifications are on' : 'Notifications are off'}
+              </Text>
+            </View>
+            <Switch
+              value={notificationsOn}
+              onValueChange={handleToggleNotifications}
+              trackColor={{ false: '#374151', true: '#6366f1' }}
+              thumbColor={notificationsOn ? '#c7d2fe' : '#9ca3af'}
+              ios_backgroundColor="#374151"
+            />
+          </View>
+          <TouchableOpacity
+            style={[styles.testButton, !notificationsOn && styles.saveButtonDisabled]}
+            onPress={handleTestNotification}
+            disabled={!notificationsOn || testingNotif}
+          >
+            {testingNotif ? (
+              <ActivityIndicator color="#ffffff" size="small" />
+            ) : (
+              <>
+                <FontAwesome5 name="paper-plane" size={13} color="#ffffff" />
+                <Text style={styles.testButtonText}>Send test notification</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </GlassCard>
 
         <GlassCard style={styles.card}>
           <View style={styles.deviceHeader}>
             <View style={styles.deviceTitleRow}>
-              <FontAwesome5 name="microchip" size={16} color="#818cf8" />
-              <Text style={styles.cardTitle}>ESP32 Device Status</Text>
+              <FontAwesome5 name="bluetooth-b" size={16} color="#818cf8" />
+              <Text style={styles.cardTitle}>Device pairing</Text>
             </View>
             <View style={[styles.badge, { backgroundColor: statusColor + '22' }]}>
               <View style={[styles.dot, { backgroundColor: statusColor }]} />
-              <Text style={[styles.badgeText, { color: statusColor }]}>
-                {connected ? 'Connected' : 'Offline'}
-              </Text>
+              <Text style={[styles.badgeText, { color: statusColor }]}>{statusLabel}</Text>
             </View>
           </View>
 
+          <Text style={styles.cardHint}>
+            React Native supports BLE pairing and disconnect. This app uses that same flow:
+            scan → PIN pair → connect / disconnect. Hardware BLE needs a native build;
+            Expo Go uses a simulated pillow.
+          </Text>
+
           {[
-            ['Device', 'HAGOKILLER Pillow'],
-            ['Mode', deviceStatus.mode],
-            ['Signal', deviceStatus.signal],
-            ['Battery', `${deviceStatus.battery}%`],
-            ['Pairing', deviceStatus.pairingStatus],
-            ['Last Seen', deviceStatus.lastSeen],
+            ['Device', pairedDevice?.name || 'None'],
+            ['Address', pairedDevice?.bleAddress || '—'],
+            ['Signal', pairedDevice ? `${pairedDevice.signalStrength} dBm` : '—'],
+            ['Session', connected ? 'Active BLE link' : 'Disconnected'],
           ].map(([label, value]) => (
             <View key={label} style={styles.infoRow}>
               <Text style={styles.infoLabel}>{label}</Text>
               <Text style={styles.infoValue}>{value}</Text>
             </View>
           ))}
+
+          <View style={styles.actionRow}>
+            {connected ? (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.disconnectButton]}
+                onPress={() => setDisconnectVisible(true)}
+                disabled={busy}
+              >
+                <FontAwesome5 name="unlink" size={13} color="#fecaca" />
+                <Text style={styles.disconnectText}>Disconnect</Text>
+              </TouchableOpacity>
+            ) : pairedDevice ? (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.connectButton]}
+                onPress={handleConnect}
+                disabled={busy}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <>
+                    <FontAwesome5 name="link" size={13} color="#ffffff" />
+                    <Text style={styles.connectText}>Reconnect</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.connectButton]}
+                onPress={handleScan}
+                disabled={busy || scanning}
+              >
+                {scanning || busy ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <>
+                    <FontAwesome5 name="search" size={13} color="#ffffff" />
+                    <Text style={styles.connectText}>Scan nearby</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+
+            {pairedDevice ? (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.unpairButton]}
+                onPress={() => setUnpairVisible(true)}
+                disabled={busy}
+              >
+                <Text style={styles.unpairText}>Unpair</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {!pairedDevice && nearbyDevices.length > 0 ? (
+            <View style={styles.scanList}>
+              <Text style={styles.scanTitle}>Nearby pillows</Text>
+              {nearbyDevices.map((device) => (
+                <TouchableOpacity
+                  key={device.id}
+                  style={styles.deviceRow}
+                  onPress={() => openPinModal(device)}
+                >
+                  <View>
+                    <Text style={styles.deviceName}>{device.name}</Text>
+                    <Text style={styles.deviceMeta}>
+                      {device.bleAddress} · {device.signalStrength} dBm
+                    </Text>
+                  </View>
+                  <Text style={styles.pairChip}>Pair</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : null}
         </GlassCard>
 
         <GlassCard style={styles.card}>
@@ -174,11 +415,58 @@ export const SettingsScreen = () => {
             <Text style={[styles.saveMessage, saveError && styles.saveError]}>{saveMessage}</Text>
           ) : null}
 
-          <TouchableOpacity style={styles.saveButton} onPress={() => setConfirmVisible(true)}>
-            <Text style={styles.saveButtonText}>Save Device Settings</Text>
+          <TouchableOpacity
+            style={[styles.saveButton, !connected && styles.saveButtonDisabled]}
+            onPress={() => setConfirmVisible(true)}
+            disabled={!connected}
+          >
+            <Text style={styles.saveButtonText}>
+              {connected ? 'Save Device Settings' : 'Connect to save settings'}
+            </Text>
           </TouchableOpacity>
         </GlassCard>
       </ScrollView>
+
+      <Modal transparent visible={pinModalVisible} animationType="fade" onRequestClose={() => setPinModalVisible(false)}>
+        <KeyboardAvoidingView style={styles.pinOverlay} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={styles.pinCard}>
+            <Text style={styles.pinTitle}>Pair {selectedDevice?.name}</Text>
+            <Text style={styles.pinHint}>Enter the 7-digit PIN under the pillow. Demo PIN: 1234567</Text>
+            <TouchableOpacity style={styles.pinRow} onPress={() => pinRef.current?.focus()} activeOpacity={1}>
+              {pinDigits.map((digit, index) => (
+                <View key={index} style={[styles.pinBox, digit ? styles.pinBoxFilled : null]}>
+                  <Text style={styles.pinDigit}>{digit}</Text>
+                </View>
+              ))}
+            </TouchableOpacity>
+            <TextInput
+              ref={pinRef}
+              value={pin}
+              onChangeText={(value) => {
+                setPin(value.replace(/\D/g, '').slice(0, PIN_LENGTH));
+                setPinError('');
+              }}
+              keyboardType="number-pad"
+              maxLength={PIN_LENGTH}
+              autoFocus
+              style={styles.hiddenInput}
+            />
+            {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
+            <View style={styles.pinActions}>
+              <TouchableOpacity style={styles.pinCancel} onPress={() => setPinModalVisible(false)}>
+                <Text style={styles.pinCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.pinConfirm, pin.length !== PIN_LENGTH && styles.saveButtonDisabled]}
+                onPress={handlePair}
+                disabled={pin.length !== PIN_LENGTH || busy}
+              >
+                {busy ? <ActivityIndicator color="#ffffff" /> : <Text style={styles.pinConfirmText}>Pair</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <ConfirmModal
         visible={confirmVisible}
@@ -187,6 +475,24 @@ export const SettingsScreen = () => {
         confirmLabel="Save"
         onConfirm={handleConfirmSave}
         onCancel={() => setConfirmVisible(false)}
+      />
+      <ConfirmModal
+        visible={disconnectVisible}
+        title="Disconnect pillow?"
+        message="The BLE session will close. You can reconnect later without entering the PIN again."
+        confirmLabel="Disconnect"
+        destructive
+        onConfirm={handleDisconnect}
+        onCancel={() => setDisconnectVisible(false)}
+      />
+      <ConfirmModal
+        visible={unpairVisible}
+        title="Unpair this pillow?"
+        message="This forgets the device. You will need the 7-digit PIN to pair again."
+        confirmLabel="Unpair"
+        destructive
+        onConfirm={handleUnpair}
+        onCancel={() => setUnpairVisible(false)}
       />
     </SafeAreaView>
   );
@@ -199,6 +505,37 @@ const styles = StyleSheet.create({
   loadingText: { color: '#9ca3af', marginTop: 12, fontWeight: '600' },
   title: { color: '#ffffff', fontSize: 28, fontWeight: '800', marginBottom: 6 },
   subtitle: { color: '#94a3b8', fontSize: 14, marginBottom: 20, lineHeight: 20 },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 16,
+  },
+  profileCopy: { flex: 1, paddingHorizontal: 14 },
+  profileName: { color: '#ffffff', fontSize: 17, fontWeight: '800', marginBottom: 2 },
+  profileHint: { color: '#94a3b8', fontSize: 13, fontWeight: '600' },
+  notifyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  testButton: {
+    backgroundColor: 'rgba(99, 102, 241, 0.9)',
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(165, 180, 252, 0.35)',
+  },
+  testButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   card: { padding: 18, marginBottom: 16 },
   cardTitle: { color: '#ffffff', fontSize: 16, fontWeight: '700', marginBottom: 6 },
   cardHint: { color: '#94a3b8', fontSize: 12, lineHeight: 18, marginBottom: 16 },
@@ -208,7 +545,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 14,
   },
-  deviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  deviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, paddingRight: 8 },
   badge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -226,7 +563,45 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,0.06)',
   },
   infoLabel: { color: '#9ca3af', fontSize: 13 },
-  infoValue: { color: '#e5e7eb', fontSize: 13, fontWeight: '600' },
+  infoValue: { color: '#e5e7eb', fontSize: 13, fontWeight: '600', maxWidth: '62%', textAlign: 'right' },
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  actionButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  connectButton: { backgroundColor: '#6366f1' },
+  disconnectButton: {
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.4)',
+  },
+  unpairButton: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+    flex: 0.7,
+  },
+  connectText: { color: '#ffffff', fontWeight: '800' },
+  disconnectText: { color: '#fecaca', fontWeight: '800' },
+  unpairText: { color: '#e5e7eb', fontWeight: '700' },
+  scanList: { marginTop: 16 },
+  scanTitle: { color: '#cbd5e1', fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  deviceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  deviceName: { color: '#ffffff', fontWeight: '700', marginBottom: 2 },
+  deviceMeta: { color: '#94a3b8', fontSize: 11 },
+  pairChip: { color: '#c7d2fe', fontWeight: '800' },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -256,7 +631,54 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(165, 180, 252, 0.35)',
   },
+  saveButtonDisabled: { opacity: 0.45 },
   saveButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   saveMessage: { color: '#10b981', fontSize: 12, marginBottom: 10, fontWeight: '600' },
   saveError: { color: '#fca5a5' },
+  pinOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(5,6,12,0.72)',
+  },
+  pinCard: {
+    backgroundColor: 'rgba(24, 27, 46, 0.96)',
+    borderRadius: 22,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  pinTitle: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  pinHint: { color: '#94a3b8', fontSize: 13, lineHeight: 19, marginBottom: 16 },
+  pinRow: { flexDirection: 'row', gap: 6, marginBottom: 12 },
+  pinBox: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pinBoxFilled: { borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)' },
+  pinDigit: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
+  hiddenInput: { position: 'absolute', opacity: 0, height: 0, width: 0 },
+  pinError: { color: '#fca5a5', textAlign: 'center', marginBottom: 10 },
+  pinActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
+  pinCancel: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  pinCancelText: { color: '#e5e7eb', fontWeight: '700' },
+  pinConfirm: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+    backgroundColor: '#6366f1',
+  },
+  pinConfirmText: { color: '#ffffff', fontWeight: '800' },
 });
