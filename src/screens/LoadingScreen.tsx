@@ -12,9 +12,9 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    const timer1 = setTimeout(() => setStatusText('Scanning for BLE smart pillow...'), 800);
-    const timer2 = setTimeout(() => setStatusText('Found SmartPillow-ESP32. Connecting...'), 1600);
-    const timer3 = setTimeout(() => setStatusText('Syncing database & analytics...'), 2400);
+    const timer1 = setTimeout(() => setStatusText('Opening local sleep database...'), 800);
+    const timer2 = setTimeout(() => setStatusText('Loading your profile...'), 1600);
+    const timer3 = setTimeout(() => setStatusText('Preparing analytics...'), 2400);
     const timer4 = setTimeout(onLoadingComplete, 3200);
 
     Animated.loop(
@@ -53,7 +53,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
 
       <View style={styles.footerContainer}>
         <FontAwesome5 name="shield-alt" size={12} color="#4b5563" style={{ marginRight: 6 }} />
-        <Text style={styles.footer}>Ecosystem paired & encrypted</Text>
+        <Text style={styles.footer}>Stored locally on this device</Text>
       </View>
     </SafeAreaView>
   );

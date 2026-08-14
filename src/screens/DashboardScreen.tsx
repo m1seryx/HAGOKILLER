@@ -26,7 +26,8 @@ import { RecommendationCard } from '../components/RecommendationCard';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
-import { calculateDashboardData, bleService } from '../services/mockBLEService';
+import { calculateDashboardData } from '../services/mockBLEService';
+import { bleService } from '../services/bleService';
 import { useDevice } from '../context/DeviceContext';
 import { FontAwesome5 } from '@expo/vector-icons';
 

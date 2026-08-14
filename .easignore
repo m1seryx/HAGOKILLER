@@ -1,0 +1,5 @@
+# Keep EAS uploads small; native folders are generated during prebuild.
+android/
+ios/
+firmware/
+.expo/

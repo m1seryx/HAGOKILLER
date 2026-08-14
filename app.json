@@ -15,9 +15,13 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.smartpillow.app",
+      "buildNumber": "1",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "HAGOKILLER uses your photos so you can set a profile picture.",
-        "NSUserNotificationsUsageDescription": "HAGOKILLER sends a notification when your pillow detects snoring."
+        "NSUserNotificationsUsageDescription": "HAGOKILLER sends a notification when your pillow detects snoring.",
+        "NSBluetoothAlwaysUsageDescription": "HAGOKILLER uses Bluetooth to connect to your smart pillow.",
+        "NSBluetoothPeripheralUsageDescription": "HAGOKILLER uses Bluetooth to connect to your smart pillow.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -26,6 +30,7 @@
         "backgroundColor": "#1a1a2e"
       },
       "package": "com.smartpillow.app",
+      "versionCode": 1,
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -36,10 +41,15 @@
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
-    "web": {},
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/icon.png"
+    },
     "plugins": [
       [
         "expo-image-picker",
@@ -54,7 +64,18 @@
           "color": "#6366f1",
           "sounds": []
         }
-      ]
+      ],
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": false,
+          "modes": [
+            "central"
+          ],
+          "bluetoothAlwaysPermission": "HAGOKILLER uses Bluetooth to connect to your smart pillow."
+        }
+      ],
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {

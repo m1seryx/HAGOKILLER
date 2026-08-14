@@ -1,3 +1,5 @@
+export type SleepEventSource = 'esp32' | 'mock' | 'seed';
+
 export interface SleepEvent {
   id: string;
   timestamp: number; // Unix timestamp in milliseconds
@@ -5,6 +7,16 @@ export interface SleepEvent {
   severity: 'low' | 'medium' | 'high'; // Based on snoring intensity
   interventionTriggered: boolean;
   interventionDuration: number; // Duration of air pump activation in seconds
+  /** Where the event came from. ESP32 BLE notifies use 'esp32'. */
+  source?: SleepEventSource;
+  /** Firmware PumpMsg.event — 1 = snore/sound */
+  eventCode?: number;
+  /** Firmware volume 0–10 */
+  level?: number;
+  /** Firmware microphone RMS */
+  rms?: number;
+  /** Packed BLE payload as hex, for debug */
+  rawPayload?: string | null;
 }
 
 export interface DailyStats {

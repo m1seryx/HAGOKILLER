@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { BLEDevice } from '../types';
-import { bleService } from '../services/mockBLEService';
+import { bleService } from '../services/bleService';
 
 interface DeviceContextValue {
   connected: boolean;

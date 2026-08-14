@@ -5,7 +5,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { SleepEvent } from '../types';
-import { bleService } from '../services/mockBLEService';
+import { bleService } from '../services/bleService';
 import moment from 'moment';
 
 const getSeverityStyle = (severity: string) => {
@@ -78,6 +78,12 @@ export const LogsScreen = () => {
         <View style={styles.logBody}>
           <Text style={styles.logTitle}>{isIntervention ? 'Pillow inflated' : 'Snore detected'}</Text>
           <Text style={styles.logMeta}>{moment(item.timestamp).format('ddd, MMM D · h:mm A')}</Text>
+          {item.level != null || item.rms != null ? (
+            <Text style={styles.logMeta}>
+              {item.level != null ? `VOL ${item.level}` : 'Snore'}
+              {item.rms != null ? ` · RMS ${item.rms}` : ''}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.logRight}>
           <View style={[styles.severityPill, { backgroundColor: sev.bg }]}>

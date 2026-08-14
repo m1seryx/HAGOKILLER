@@ -2,7 +2,18 @@ import { SleepEvent, DashboardData, DailyStats, BLEDevice } from '../types';
 import moment from 'moment';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
 import { isValidPairingPin } from '../utils/pinValidation';
-import { loadPairedDevice, savePairedDevice, setDevicePaired } from './userStorage';
+import {
+  loadPairedDevice,
+  savePairedDevice,
+  setDevicePaired,
+  loadDeviceSettings,
+  saveDeviceSettings,
+  loadSleepEvents,
+  insertSleepEvent,
+  replaceSleepEvents,
+  deleteStoredEvent,
+  clearStoredEvents,
+} from './userStorage';
 
 export interface DeviceSettings {
   snoreThreshold: number;
@@ -151,6 +162,7 @@ export const generateMockSleepEvents = (days: number = 90): SleepEvent[] => {
         severity: severityLevel,
         interventionTriggered: triggered,
         interventionDuration: triggered ? 10 + ((i * 5 + d) % 20) : 0,
+        source: 'seed',
       });
     }
   }
@@ -198,29 +210,35 @@ export const calculateDashboardData = (events: SleepEvent[]): DashboardData => {
  * GATT layer with the same pair / connect / disconnect API.
  */
 export class MockBLEService {
-  private mockEvents: SleepEvent[] = generateMockSleepEvents();
+  private mockEvents: SleepEvent[] = [];
+  private eventsReady: Promise<void> | null = null;
   private connected = false;
   private pairedDevice: BLEDevice | null = null;
   private listeners = new Set<() => void>();
   private eventListeners = new Set<(event: SleepEvent) => void>();
   private liveTimer: ReturnType<typeof setInterval> | null = null;
   private liveTimeout: ReturnType<typeof setTimeout> | null = null;
+  private seedIfEmpty: boolean;
   private settings: DeviceSettings = {
     snoreThreshold: 3,
     pumpDuration: 12,
   };
 
+  constructor(options?: { seedIfEmpty?: boolean }) {
+    this.seedIfEmpty = options?.seedIfEmpty !== false;
+  }
+
   private nearbyDevices: BLEDevice[] = [
     {
-      id: 'esp32-pillow-001',
-      name: 'SmartPillow-ESP32',
+      id: 'demo-pillow-001',
+      name: 'Demo Pillow A',
       bleAddress: 'A4:CF:12:8B:44:01',
       isConnected: false,
       signalStrength: -48,
     },
     {
-      id: 'esp32-pillow-002',
-      name: 'HAGOKILLER Pillow',
+      id: 'demo-pillow-002',
+      name: 'Demo Pillow B',
       bleAddress: 'A4:CF:12:8B:44:19',
       isConnected: false,
       signalStrength: -62,
@@ -246,20 +264,26 @@ export class MockBLEService {
     const severity: SleepEvent['severity'] = roll < 5 ? 'low' : roll < 8 ? 'medium' : 'high';
     const duration = 18 + (Date.now() % 42);
     const triggered = severity !== 'low';
-    return {
+    const event: SleepEvent = {
       id: `live-${Date.now()}`,
       timestamp: Date.now(),
       duration,
       severity,
       interventionTriggered: triggered,
       interventionDuration: triggered ? this.settings.pumpDuration : 0,
+      source: 'mock',
+      eventCode: 1,
+      level: severity === 'high' ? 9 : severity === 'medium' ? 6 : 3,
+      rms: 80 + duration,
     };
+    return event;
   }
 
   private emitLiveEvent() {
     if (!this.connected) return;
     const event = this.createLiveSnoreEvent();
     this.mockEvents.unshift(event);
+    insertSleepEvent(event).catch(() => undefined);
     this.eventListeners.forEach((listener) => listener(event));
     this.notify();
   }
@@ -283,8 +307,36 @@ export class MockBLEService {
     }
   }
 
+  private async hydrateEvents(): Promise<void> {
+    if (this.eventsReady) return this.eventsReady;
+    this.eventsReady = (async () => {
+      const stored = await loadSleepEvents();
+      if (stored.length > 0) {
+        this.mockEvents = stored;
+        return;
+      }
+      if (!this.seedIfEmpty) {
+        this.mockEvents = [];
+        return;
+      }
+      this.mockEvents = generateMockSleepEvents();
+      await replaceSleepEvents(this.mockEvents);
+    })().catch((error) => {
+      this.eventsReady = null;
+      throw error;
+    });
+    return this.eventsReady;
+  }
+
   async restoreSession(): Promise<void> {
-    const saved = await loadPairedDevice();
+    const [saved, settings] = await Promise.all([
+      loadPairedDevice(),
+      loadDeviceSettings(),
+      this.hydrateEvents(),
+    ]);
+    if (settings) {
+      this.settings = settings;
+    }
     if (saved) {
       this.pairedDevice = {
         ...saved,
@@ -380,29 +432,34 @@ export class MockBLEService {
   }
 
   async fetchSleepEvents(): Promise<SleepEvent[]> {
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        try {
-          resolve([...this.mockEvents].sort((a, b) => b.timestamp - a.timestamp));
-        } catch (error) {
-          reject(error);
-        }
-      }, 800);
-    });
+    await this.hydrateEvents();
+    return [...this.mockEvents].sort((a, b) => b.timestamp - a.timestamp);
   }
 
   async addNewEvent(event: SleepEvent): Promise<void> {
-    this.mockEvents.push(event);
+    await this.hydrateEvents();
+    if (!this.mockEvents.some((existing) => existing.id === event.id)) {
+      this.mockEvents.unshift(event);
+    }
+    await insertSleepEvent(event);
+    this.eventListeners.forEach((listener) => listener(event));
+    this.notify();
   }
 
   async deleteEvent(eventId: string): Promise<boolean> {
+    await this.hydrateEvents();
     const before = this.mockEvents.length;
     this.mockEvents = this.mockEvents.filter((event) => event.id !== eventId);
-    return this.mockEvents.length < before;
+    if (this.mockEvents.length < before) {
+      await deleteStoredEvent(eventId);
+      return true;
+    }
+    return false;
   }
 
   async clearEvents(): Promise<void> {
     this.mockEvents = [];
+    await clearStoredEvents();
   }
 
   async saveDeviceSettings(settings: DeviceSettings): Promise<DeviceSettings> {
@@ -426,6 +483,7 @@ export class MockBLEService {
       snoreThreshold: Math.round(settings.snoreThreshold),
       pumpDuration: Math.round(settings.pumpDuration),
     };
+    await saveDeviceSettings(this.settings);
 
     return { ...this.settings };
   }
@@ -442,9 +500,6 @@ export class MockBLEService {
     return this.pairedDevice !== null;
   }
 }
-
-/** Shared BLE session so Settings, Dashboard, and pairing stay in sync. */
-export const bleService = new MockBLEService();
 
 // Get sample recommendations based on current data
 export const getSampleRecommendations = () => {

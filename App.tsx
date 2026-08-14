@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { enableScreens } from 'react-native-screens';
 import { FontAwesome5 } from '@expo/vector-icons';
 
 import { LoadingScreen } from './src/screens/LoadingScreen';
 import { NameInputScreen } from './src/screens/NameInputScreen';
-import { PairingPinScreen } from './src/screens/PairingPinScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { LogsScreen } from './src/screens/LogsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -17,18 +17,21 @@ import { ProfileScreen } from './src/screens/ProfileScreen';
 import { UserContext } from './src/context/UserContext';
 import { DeviceProvider } from './src/context/DeviceContext';
 import { UserProfile } from './src/types';
-import { bleService } from './src/services/mockBLEService';
+import { bleService } from './src/services/bleService';
 import {
   hydrateNotificationPref,
   setupSnoreNotifications,
   notifySnoreDetected,
 } from './src/services/snoreNotifications';
 import {
+  initDatabase,
   saveUserProfile,
   loadUserProfile,
-  setDevicePaired,
-  isDevicePaired,
 } from './src/services/userStorage';
+
+if (Platform.OS === 'web') {
+  enableScreens(false);
+}
 
 try { SplashScreen.preventAutoHideAsync(); } catch (_) {}
 
@@ -126,6 +129,29 @@ const SnoreAlertHost = () => {
   return null;
 };
 
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <View style={styles.crash}>
+          <Text style={styles.crashTitle}>App failed to load</Text>
+          <Text style={styles.crashBody}>{this.state.error.message}</Text>
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [userName, setUserName] = useState('');
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -156,12 +182,13 @@ export default function App() {
 
   const handleLoadingComplete = async (navigation: { replace: (route: string) => void }) => {
     try {
-      const [profile, paired] = await Promise.all([loadUserProfile(), isDevicePaired()]);
+      await initDatabase();
+      const profile = await loadUserProfile();
 
       if (profile) {
         setUserName(profile.name);
         setUserProfile(profile);
-        navigation.replace(paired ? 'Main' : 'PairingPin');
+        navigation.replace('Main');
         return;
       }
 
@@ -178,30 +205,23 @@ export default function App() {
     setUserName(profile.name);
     setUserProfile(profile);
     try {
+      await initDatabase();
       await saveUserProfile(profile);
     } catch (_) {
-      // Continue onboarding even if local save fails
-    }
-    navigation.replace('PairingPin');
-  };
-
-  const handlePairingComplete = async (navigation: { replace: (route: string) => void }) => {
-    try {
-      await setDevicePaired(true);
-    } catch (_) {
-      // Still allow demo access if storage write fails
+      // Continue even if local save fails
     }
     navigation.replace('Main');
   };
 
   return (
-    <SafeAreaProvider>
+    <AppErrorBoundary>
+    <SafeAreaProvider style={styles.container}>
       <DeviceProvider>
       <SnoreAlertHost />
       <UserContext.Provider value={userValue}>
         <View style={styles.container}>
           <NavigationContainer theme={MyTheme}>
-            <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
+            <Stack.Navigator screenOptions={{ headerShown: false, animation: Platform.OS === 'web' ? 'none' : 'fade' }}>
 
               <Stack.Screen name="Loading">
                 {(props) => (
@@ -215,15 +235,6 @@ export default function App() {
                 {(props) => (
                   <NameInputScreen
                     onProfileSubmit={(profile) => handleProfileSubmit(profile, props.navigation)}
-                  />
-                )}
-              </Stack.Screen>
-
-              <Stack.Screen name="PairingPin">
-                {(props) => (
-                  <PairingPinScreen
-                    onPinSubmit={() => handlePairingComplete(props.navigation)}
-                    onSkipDemo={() => handlePairingComplete(props.navigation)}
                   />
                 )}
               </Stack.Screen>
@@ -242,11 +253,30 @@ export default function App() {
       </UserContext.Provider>
       </DeviceProvider>
     </SafeAreaProvider>
+    </AppErrorBoundary>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0b10' },
+  container: {
+    flex: 1,
+    backgroundColor: '#0a0b10',
+    ...Platform.select({
+      web: {
+        height: '100%',
+        minHeight: '100vh' as unknown as number,
+      },
+      default: {},
+    }),
+  },
+  crash: {
+    flex: 1,
+    backgroundColor: '#0a0b10',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  crashTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800', marginBottom: 8 },
+  crashBody: { color: '#fca5a5', fontSize: 14, lineHeight: 20 },
   tabIconWell: {
     width: 44,
     height: 32,

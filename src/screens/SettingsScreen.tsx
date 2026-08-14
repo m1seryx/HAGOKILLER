@@ -21,7 +21,7 @@ import { ConfirmModal } from '../components/ConfirmModal';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import { useDevice } from '../context/DeviceContext';
 import { useUser } from '../context/UserContext';
-import { bleService } from '../services/mockBLEService';
+import { bleService, isMockBle } from '../services/bleService';
 import {
   hydrateNotificationPref,
   setNotificationsEnabled,
@@ -65,6 +65,12 @@ export const SettingsScreen = () => {
   const pinRef = useRef<TextInput>(null);
 
   useEffect(() => {
+    if (!pinModalVisible) return;
+    const timer = setTimeout(() => pinRef.current?.focus(), 350);
+    return () => clearTimeout(timer);
+  }, [pinModalVisible]);
+
+  useEffect(() => {
     const settings = bleService.getDeviceSettings();
     setSnoreThreshold(settings.snoreThreshold);
     setPumpDuration(settings.pumpDuration);
@@ -93,6 +99,8 @@ export const SettingsScreen = () => {
     setBusy(true);
     try {
       await scan();
+    } catch (error) {
+      Alert.alert('Scan failed', error instanceof Error ? error.message : 'Could not scan.');
     } finally {
       setBusy(false);
     }
@@ -197,7 +205,7 @@ export const SettingsScreen = () => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Pair your pillow over Bluetooth, then tune device behavior</Text>
+        <Text style={styles.subtitle}>Pair your pillow here, then tune device behavior</Text>
 
         <TouchableOpacity
           style={styles.profileCard}
@@ -269,12 +277,13 @@ export const SettingsScreen = () => {
           </View>
 
           <Text style={styles.cardHint}>
-            React Native supports BLE pairing and disconnect. This app uses that same flow:
-            scan → PIN pair → connect / disconnect. Hardware BLE needs a native build;
-            Expo Go uses a simulated pillow.
+            {isMockBle
+              ? 'Demo Bluetooth is on. This build is not talking to the ESP32.'
+              : 'Live Bluetooth is on. Scan should find HAGOKILLER Pillow, and the ESP32 serial should show “app connected”.'}
           </Text>
 
           {[
+            ['Bluetooth', isMockBle ? 'Demo' : 'Live'],
             ['Device', pairedDevice?.name || 'None'],
             ['Address', pairedDevice?.bleAddress || '—'],
             ['Signal', pairedDevice ? `${pairedDevice.signalStrength} dBm` : '—'],
@@ -432,25 +441,32 @@ export const SettingsScreen = () => {
           <View style={styles.pinCard}>
             <Text style={styles.pinTitle}>Pair {selectedDevice?.name}</Text>
             <Text style={styles.pinHint}>Enter the 7-digit PIN under the pillow. Demo PIN: 1234567</Text>
-            <TouchableOpacity style={styles.pinRow} onPress={() => pinRef.current?.focus()} activeOpacity={1}>
+            <View style={styles.pinRow}>
               {pinDigits.map((digit, index) => (
-                <View key={index} style={[styles.pinBox, digit ? styles.pinBoxFilled : null]}>
+                <View key={index} style={[styles.pinBox, digit ? styles.pinBoxFilled : null]} pointerEvents="none">
                   <Text style={styles.pinDigit}>{digit}</Text>
                 </View>
               ))}
-            </TouchableOpacity>
-            <TextInput
-              ref={pinRef}
-              value={pin}
-              onChangeText={(value) => {
-                setPin(value.replace(/\D/g, '').slice(0, PIN_LENGTH));
-                setPinError('');
-              }}
-              keyboardType="number-pad"
-              maxLength={PIN_LENGTH}
-              autoFocus
-              style={styles.hiddenInput}
-            />
+              <TextInput
+                ref={pinRef}
+                value={pin}
+                onChangeText={(value) => {
+                  setPin(value.replace(/\D/g, '').slice(0, PIN_LENGTH));
+                  setPinError('');
+                }}
+                keyboardType={Platform.OS === 'ios' ? 'number-pad' : 'numeric'}
+                inputMode="numeric"
+                textContentType="oneTimeCode"
+                autoComplete="sms-otp"
+                importantForAutofill="no"
+                maxLength={PIN_LENGTH}
+                autoFocus
+                caretHidden
+                showSoftInputOnFocus
+                blurOnSubmit={false}
+                style={styles.pinOverlayInput}
+              />
+            </View>
             {pinError ? <Text style={styles.pinError}>{pinError}</Text> : null}
             <View style={styles.pinActions}>
               <TouchableOpacity style={styles.pinCancel} onPress={() => setPinModalVisible(false)}>
@@ -650,7 +666,7 @@ const styles = StyleSheet.create({
   },
   pinTitle: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 6 },
   pinHint: { color: '#94a3b8', fontSize: 13, lineHeight: 19, marginBottom: 16 },
-  pinRow: { flexDirection: 'row', gap: 6, marginBottom: 12 },
+  pinRow: { flexDirection: 'row', gap: 6, marginBottom: 12, position: 'relative' },
   pinBox: {
     flex: 1,
     height: 48,
@@ -662,7 +678,13 @@ const styles = StyleSheet.create({
   },
   pinBoxFilled: { borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)' },
   pinDigit: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
-  hiddenInput: { position: 'absolute', opacity: 0, height: 0, width: 0 },
+  pinOverlayInput: {
+    ...StyleSheet.absoluteFillObject,
+    color: 'transparent',
+    fontSize: 16,
+    backgroundColor: 'transparent',
+    zIndex: 2,
+  },
   pinError: { color: '#fca5a5', textAlign: 'center', marginBottom: 10 },
   pinActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
   pinCancel: {
