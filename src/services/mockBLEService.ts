@@ -14,11 +14,13 @@ import {
   deleteStoredEvent,
   clearStoredEvents,
 } from './userStorage';
+import {
+  DeviceSettings,
+  DEFAULT_DEVICE_SETTINGS,
+  validateDeviceSettings,
+} from './deviceSettings';
 
-export interface DeviceSettings {
-  snoreThreshold: number;
-  pumpDuration: number;
-}
+export type { DeviceSettings } from './deviceSettings';
 
 // Realistic mock sleep data — 90 days of hardcoded events
 // Story: starts with bad snoring, peaks dangerously mid-period, slowly improves
@@ -219,10 +221,8 @@ export class MockBLEService {
   private liveTimer: ReturnType<typeof setInterval> | null = null;
   private liveTimeout: ReturnType<typeof setTimeout> | null = null;
   private seedIfEmpty: boolean;
-  private settings: DeviceSettings = {
-    snoreThreshold: 3,
-    pumpDuration: 12,
-  };
+  private snoreStreak = 0;
+  private settings: DeviceSettings = { ...DEFAULT_DEVICE_SETTINGS };
 
   constructor(options?: { seedIfEmpty?: boolean }) {
     this.seedIfEmpty = options?.seedIfEmpty !== false;
@@ -263,7 +263,10 @@ export class MockBLEService {
     const roll = Date.now() % 10;
     const severity: SleepEvent['severity'] = roll < 5 ? 'low' : roll < 8 ? 'medium' : 'high';
     const duration = 18 + (Date.now() % 42);
-    const triggered = severity !== 'low';
+    this.snoreStreak += 1;
+    const triggered = this.snoreStreak >= this.settings.snoreThreshold;
+    if (triggered) this.snoreStreak = 0;
+    const streakAtEvent = triggered ? this.settings.snoreThreshold : this.snoreStreak;
     const event: SleepEvent = {
       id: `live-${Date.now()}`,
       timestamp: Date.now(),
@@ -275,6 +278,7 @@ export class MockBLEService {
       eventCode: 1,
       level: severity === 'high' ? 9 : severity === 'medium' ? 6 : 3,
       rms: 80 + duration,
+      snoreStreak: streakAtEvent,
     };
     return event;
   }
@@ -335,7 +339,7 @@ export class MockBLEService {
       this.hydrateEvents(),
     ]);
     if (settings) {
-      this.settings = settings;
+      this.settings = { ...DEFAULT_DEVICE_SETTINGS, ...settings };
     }
     if (saved) {
       this.pairedDevice = {
@@ -463,28 +467,9 @@ export class MockBLEService {
   }
 
   async saveDeviceSettings(settings: DeviceSettings): Promise<DeviceSettings> {
-    if (
-      !Number.isFinite(settings.snoreThreshold) ||
-      settings.snoreThreshold < 1 ||
-      settings.snoreThreshold > 10
-    ) {
-      throw new Error('Snore threshold must be between 1 and 10');
-    }
-
-    if (
-      !Number.isFinite(settings.pumpDuration) ||
-      settings.pumpDuration < 5 ||
-      settings.pumpDuration > 30
-    ) {
-      throw new Error('Pump duration must be between 5 and 30 seconds');
-    }
-
-    this.settings = {
-      snoreThreshold: Math.round(settings.snoreThreshold),
-      pumpDuration: Math.round(settings.pumpDuration),
-    };
+    this.settings = validateDeviceSettings(settings);
+    this.snoreStreak = 0;
     await saveDeviceSettings(this.settings);
-
     return { ...this.settings };
   }
 

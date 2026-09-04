@@ -3,7 +3,7 @@ export {
   calculateDashboardData,
   generateMockSleepEvents,
 } from './mockBLEService';
-export type { DeviceSettings } from './mockBLEService';
+export type { DeviceSettings } from './deviceSettings';
 export { bleService } from './bleService';
 export {
   PHONE_SERVICE_UUID,

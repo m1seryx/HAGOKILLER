@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SleepEvent, UserProfile } from '../types';
+import { DailyActivityCheckIn, SleepEvent, UserProfile } from '../types';
+import { DeviceSettings, normalizeDeviceSettings } from './deviceSettings';
 
 const PROFILE_KEY = '@hagokiller_profile';
 const PAIRED_KEY = '@hagokiller_paired';
@@ -7,6 +8,7 @@ const PAIRED_DEVICE_KEY = '@hagokiller_paired_device';
 const NOTIFICATIONS_KEY = '@hagokiller_notifications';
 const SETTINGS_KEY = '@hagokiller_device_settings';
 const EVENTS_KEY = '@hagokiller_sleep_events';
+const DAILY_ACTIVITY_KEY = '@hagokiller_daily_activity';
 
 export interface StoredPairedDevice {
   id: string;
@@ -15,10 +17,7 @@ export interface StoredPairedDevice {
   signalStrength: number;
 }
 
-export interface StoredDeviceSettings {
-  snoreThreshold: number;
-  pumpDuration: number;
-}
+export type StoredDeviceSettings = DeviceSettings;
 
 const parseJson = async <T,>(key: string): Promise<T | null> => {
   const raw = await AsyncStorage.getItem(key);
@@ -81,11 +80,12 @@ export async function dbSaveNotificationsEnabled(enabled: boolean): Promise<void
 }
 
 export async function dbSaveDeviceSettings(settings: StoredDeviceSettings): Promise<void> {
-  await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(normalizeDeviceSettings(settings)));
 }
 
 export async function dbLoadDeviceSettings(): Promise<StoredDeviceSettings | null> {
-  return parseJson<StoredDeviceSettings>(SETTINGS_KEY);
+  const raw = await parseJson<StoredDeviceSettings>(SETTINGS_KEY);
+  return raw ? normalizeDeviceSettings(raw) : null;
 }
 
 export async function dbLoadSleepEvents(): Promise<SleepEvent[]> {
@@ -119,6 +119,23 @@ export async function dbClearSleepEvents(): Promise<void> {
   await AsyncStorage.removeItem(EVENTS_KEY);
 }
 
+export async function dbSaveDailyActivityCheckIn(checkIn: DailyActivityCheckIn): Promise<void> {
+  const map = (await parseJson<Record<string, DailyActivityCheckIn>>(DAILY_ACTIVITY_KEY)) ?? {};
+  map[checkIn.date] = checkIn;
+  const dates = Object.keys(map).sort();
+  if (dates.length > 60) {
+    for (const oldDate of dates.slice(0, dates.length - 60)) {
+      delete map[oldDate];
+    }
+  }
+  await AsyncStorage.setItem(DAILY_ACTIVITY_KEY, JSON.stringify(map));
+}
+
+export async function dbLoadDailyActivityCheckIn(date: string): Promise<DailyActivityCheckIn | null> {
+  const map = await parseJson<Record<string, DailyActivityCheckIn>>(DAILY_ACTIVITY_KEY);
+  return map?.[date] ?? null;
+}
+
 export async function dbClearUserData(): Promise<void> {
   await AsyncStorage.multiRemove([
     PROFILE_KEY,
@@ -127,5 +144,6 @@ export async function dbClearUserData(): Promise<void> {
     NOTIFICATIONS_KEY,
     SETTINGS_KEY,
     EVENTS_KEY,
+    DAILY_ACTIVITY_KEY,
   ]);
 }

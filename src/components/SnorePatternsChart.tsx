@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Dimensions } from 'react-native';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import { DailyStats } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
+import { colors } from '../constants/theme';
 
 interface SnorePatternsChartProps {
   weeklyData: DailyStats[];
@@ -63,12 +64,12 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
   const chartWidth = Dimensions.get('window').width - 48; // Adjusted padding
 
   const commonChartConfig = {
-    backgroundColor: '#161722',
-    backgroundGradientFrom: '#161722',
-    backgroundGradientTo: '#1e1f2f',
+    backgroundColor: colors.chartGradientFrom,
+    backgroundGradientFrom: colors.chartGradientFrom,
+    backgroundGradientTo: colors.chartGradientTo,
     decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(156, 163, 175, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(156, 163, 175, 0.8)`,
+    color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(100, 116, 139, ${opacity})`,
     style: {
       borderRadius: 16,
     },
@@ -76,11 +77,11 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
       r: '5',
       strokeWidth: '2.5',
       stroke: '#6366f1',
-      fill: '#0a0b10',
+      fill: colors.chartFill,
     },
     propsForBackgroundLines: {
       strokeDasharray: '4',
-      stroke: 'rgba(255, 255, 255, 0.04)',
+      stroke: 'rgba(15, 23, 42, 0.08)',
     },
   };
 
@@ -136,15 +137,15 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
   },
@@ -163,7 +164,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#ffffff',
+    color: colors.text,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -175,7 +176,7 @@ const styles = StyleSheet.create({
     minHeight: 120,
   },
   emptyChart: {
-    color: '#94a3b8',
+    color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
     paddingVertical: 36,
@@ -191,7 +192,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+    borderTopColor: colors.border,
   },
   legendItem: {
     flexDirection: 'row',
@@ -205,17 +206,17 @@ const styles = StyleSheet.create({
   },
   legendLabel: {
     fontSize: 11,
-    color: '#9ca3af',
+    color: colors.textMuted,
     fontWeight: '500',
   },
   legendDivider: {
     width: 1,
     height: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: colors.border,
   },
   legendHelp: {
     fontSize: 10,
-    color: '#6b7280',
+    color: colors.textMuted,
     fontStyle: 'italic',
   },
 });

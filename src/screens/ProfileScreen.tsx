@@ -21,6 +21,7 @@ import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import { saveUserProfile } from '../services/userStorage';
 import { UserProfile } from '../types';
+import { colors } from '../constants/theme';
 
 const MONTHS = moment.months();
 const GOALS = [6, 7, 8, 9, 10];
@@ -274,7 +275,7 @@ export const ProfileScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0b10' },
+  container: { flex: 1, backgroundColor: colors.background },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -319,7 +320,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#0a0b10',
+    borderColor: colors.background,
   },
   name: { color: '#ffffff', fontSize: 26, fontWeight: '800', marginBottom: 4 },
   brand: { color: '#94a3b8', fontSize: 13, fontWeight: '600' },

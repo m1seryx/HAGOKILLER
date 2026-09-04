@@ -1,7 +1,8 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { SleepEvent } from '../types';
-import { loadNotificationsEnabled, saveNotificationsEnabled } from './userStorage';
+import { loadDeviceSettings, loadNotificationsEnabled, saveNotificationsEnabled } from './userStorage';
+import { DEFAULT_DEVICE_SETTINGS } from './deviceSettings';
 
 let notificationsEnabled = true;
 
@@ -39,7 +40,7 @@ export async function setupSnoreNotifications(): Promise<boolean> {
       name: 'Snore alerts',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#6366f1',
+      lightColor: '#7c8cff',
       sound: 'default',
     });
   }
@@ -76,15 +77,29 @@ async function presentNotification(title: string, body: string, data?: Record<st
   });
 }
 
+/** Only alert when the consecutive threshold is hit or the pump is inflating. */
+export function shouldNotifySnoreEvent(event: SleepEvent, snoreThreshold: number): boolean {
+  if (event.interventionTriggered) return true;
+  if (event.snoreStreak != null && event.snoreStreak >= snoreThreshold) return true;
+  return false;
+}
+
 export async function notifySnoreDetected(event: SleepEvent): Promise<void> {
   if (!notificationsEnabled) return;
 
-  const severity = event.severity.charAt(0).toUpperCase() + event.severity.slice(1);
-  const body = event.interventionTriggered
-    ? `${severity} snore — pillow inflated to help you breathe.`
-    : `${severity} snore detected (${event.duration}s).`;
+  const settings = await loadDeviceSettings();
+  const threshold = settings?.snoreThreshold ?? DEFAULT_DEVICE_SETTINGS.snoreThreshold;
+  if (!shouldNotifySnoreEvent(event, threshold)) return;
 
-  await presentNotification('Snore detected', body, { eventId: event.id });
+  const severity = event.severity.charAt(0).toUpperCase() + event.severity.slice(1);
+  const streakNote =
+    event.snoreStreak != null ? ` (${event.snoreStreak}/${threshold} consecutive snores)` : '';
+
+  const body = event.interventionTriggered
+    ? `${severity} snoring threshold reached${streakNote} — pillow inflating for ${event.interventionDuration}s.`
+    : `Snoring threshold reached${streakNote}.`;
+
+  await presentNotification('Snoring threshold reached', body, { eventId: event.id });
 }
 
 export async function sendTestNotification(): Promise<void> {
@@ -99,7 +114,7 @@ export async function sendTestNotification(): Promise<void> {
 
   await presentNotification(
     'Test notification',
-    'Snore alerts are working. You will be notified when a snore is detected.',
+    'Snore alerts are working. You will only be notified when your threshold is hit or the pump inflates.',
     { test: 'true' },
   );
 }

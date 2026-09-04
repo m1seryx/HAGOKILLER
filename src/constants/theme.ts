@@ -1,0 +1,23 @@
+/** White / light-white palette — soft backgrounds with readable dark text. */
+export const colors = {
+  background: '#ffffff',
+  backgroundSoft: '#fafbfc',
+  backgroundMuted: '#f3f4f6',
+  surface: '#ffffff',
+  surfaceMuted: '#f8fafc',
+  glass: '#ffffff',
+  glassBorder: 'rgba(15, 23, 42, 0.08)',
+  border: 'rgba(15, 23, 42, 0.08)',
+  borderStrong: 'rgba(15, 23, 42, 0.12)',
+  text: '#1e293b',
+  textSecondary: '#475569',
+  textMuted: '#64748b',
+  accent: '#6366f1',
+  accentSoft: 'rgba(99, 102, 241, 0.12)',
+  onAccent: '#ffffff',
+  tabBar: '#ffffff',
+  tabBarBorder: 'rgba(15, 23, 42, 0.08)',
+  chartFill: '#ffffff',
+  chartGradientFrom: '#f8fafc',
+  chartGradientTo: '#f1f5f9',
+};

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { RecommendationData } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
+import { colors } from '../constants/theme';
 
 interface RecommendationCardProps {
   data: RecommendationData;
@@ -31,6 +32,15 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
 
       {/* Main Recommendation Text */}
       <View style={styles.mainRecommendation}>
+        {data.dailyTip ? (
+          <View style={styles.dailyTipBanner}>
+            <FontAwesome5 name="lightbulb" size={12} color="#fbbf24" style={{ marginRight: 8 }} />
+            <Text style={styles.dailyTipText}>Today's tip: {data.dailyTip}</Text>
+          </View>
+        ) : null}
+        {data.activityContext ? (
+          <Text style={styles.activityContext}>{data.activityContext}</Text>
+        ) : null}
         <Text style={styles.mainText}>{data.recommendation}</Text>
         <Text style={[styles.mainText, { marginTop: 8, fontStyle: 'italic', color: '#9ca3af', fontSize: 11 }]}>
           If symptoms persist, consult your doctor.
@@ -83,15 +93,15 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: colors.border,
     marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
   },
@@ -100,7 +110,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 16,
     borderLeftWidth: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.01)',
+    backgroundColor: colors.surfaceMuted,
   },
   headerIconContainer: {
     width: 36,
@@ -122,30 +132,51 @@ const styles = StyleSheet.create({
   },
   trendMessage: {
     fontSize: 12,
-    color: '#9ca3af',
+    color: colors.textMuted,
     fontWeight: '500',
   },
   mainRecommendation: {
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    backgroundColor: colors.backgroundSoft,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    borderBottomColor: colors.border,
+  },
+  dailyTipBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(251, 191, 36, 0.08)',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  dailyTipText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#b45309',
+    lineHeight: 17,
+  },
+  activityContext: {
+    fontSize: 12,
+    color: colors.accent,
+    lineHeight: 17,
+    marginBottom: 8,
+    fontStyle: 'italic',
   },
   mainText: {
     fontSize: 13,
-    color: '#e5e7eb',
+    color: colors.textSecondary,
     lineHeight: 18,
   },
   actionsContainer: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    borderBottomColor: colors.border,
   },
   actionsTitle: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#9ca3af',
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 12,
@@ -168,7 +199,7 @@ const styles = StyleSheet.create({
   actionText: {
     flex: 1,
     fontSize: 13,
-    color: '#d1d5db',
+    color: colors.textSecondary,
     lineHeight: 18,
   },
   warningBanner: {
@@ -177,7 +208,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: 'rgba(239, 68, 68, 0.15)',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.04)',
+    borderBottomColor: colors.border,
     padding: 14,
     alignItems: 'flex-start',
     gap: 10,
@@ -206,7 +237,7 @@ const styles = StyleSheet.create({
   },
   footer: {
     padding: 12,
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    backgroundColor: colors.backgroundSoft,
   },
   footerRow: {
     flexDirection: 'row',
@@ -218,7 +249,7 @@ const styles = StyleSheet.create({
   footerText: {
     flex: 1,
     fontSize: 11,
-    color: '#6b7280',
+    color: colors.textMuted,
     lineHeight: 15,
   },
 });

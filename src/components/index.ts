@@ -1,6 +1,7 @@
 export { StatsCard } from './StatsCard';
 export { SnorePatternsChart } from './SnorePatternsChart';
 export { RecommendationCard } from './RecommendationCard';
+export { AssessmentQuestionnaire } from './AssessmentQuestionnaire';
 export { StatsFilter } from './StatsFilter';
 export { AnimatedTabScene } from './AnimatedTabScene';
 export { GlassCard } from './GlassCard';

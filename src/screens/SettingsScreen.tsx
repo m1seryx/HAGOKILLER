@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   TextInput,
   Modal,
@@ -15,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { GlassCard } from '../components/GlassCard';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { ProfileAvatar } from '../components/ProfileAvatar';
@@ -29,8 +30,45 @@ import {
 } from '../services/snoreNotifications';
 import { BLEDevice } from '../types';
 import { isValidPairingPin } from '../utils/pinValidation';
+import { colors } from '../constants/theme';
+import {
+  PUMP_DURATION_MAX_SEC,
+  PUMP_DURATION_MIN_SEC,
+  PUMP_DURATION_STEP_SEC,
+} from '../services/deviceSettings';
 
 const PIN_LENGTH = 7;
+
+type StepperProps = {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  format?: (value: number) => string;
+  onChange: (value: number) => void;
+};
+
+const Stepper = ({ value, min, max, step = 1, format, onChange }: StepperProps) => (
+  <View style={styles.stepper}>
+    <Pressable
+      style={({ pressed }) => [styles.stepButton, pressed && styles.stepButtonPressed]}
+      onPress={() => onChange(Math.max(min, value - step))}
+      accessibilityRole="button"
+      accessibilityLabel="Decrease"
+    >
+      <Text style={styles.stepText}>-</Text>
+    </Pressable>
+    <Text style={styles.stepValue}>{format ? format(value) : String(value)}</Text>
+    <Pressable
+      style={({ pressed }) => [styles.stepButton, pressed && styles.stepButtonPressed]}
+      onPress={() => onChange(Math.min(max, value + step))}
+      accessibilityRole="button"
+      accessibilityLabel="Increase"
+    >
+      <Text style={styles.stepText}>+</Text>
+    </Pressable>
+  </View>
+);
 
 export const SettingsScreen = () => {
   const navigation = useNavigation<any>();
@@ -51,6 +89,8 @@ export const SettingsScreen = () => {
   const [busy, setBusy] = useState(false);
   const [snoreThreshold, setSnoreThreshold] = useState(3);
   const [pumpDuration, setPumpDuration] = useState(12);
+  const [micShift, setMicShift] = useState(15);
+  const settingsDirtyRef = useRef(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
@@ -70,23 +110,45 @@ export const SettingsScreen = () => {
     return () => clearTimeout(timer);
   }, [pinModalVisible]);
 
-  useEffect(() => {
+  const loadStoredSettings = useCallback(() => {
     const settings = bleService.getDeviceSettings();
     setSnoreThreshold(settings.snoreThreshold);
     setPumpDuration(settings.pumpDuration);
+    setMicShift(settings.micShift);
+    settingsDirtyRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    loadStoredSettings();
     hydrateNotificationPref()
       .then(setNotificationsOn)
       .finally(() => setLoading(false));
-  }, []);
+  }, [loadStoredSettings]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!settingsDirtyRef.current) {
+        loadStoredSettings();
+      }
+    }, [loadStoredSettings]),
+  );
+
+  const markSettingsDirty = () => {
+    settingsDirtyRef.current = true;
+  };
 
   const handleConfirmSave = async () => {
     setConfirmVisible(false);
     try {
-      const saved = await bleService.saveDeviceSettings({ snoreThreshold, pumpDuration });
+      const saved = await bleService.saveDeviceSettings({ snoreThreshold, pumpDuration, micShift });
       setSnoreThreshold(saved.snoreThreshold);
       setPumpDuration(saved.pumpDuration);
+      setMicShift(saved.micShift);
+      settingsDirtyRef.current = false;
       setSaveError(false);
-      setSaveMessage('Device settings saved to pillow');
+      setSaveMessage(
+        connected ? 'Device settings saved to pillow' : 'Settings saved on phone (connect pillow to sync)',
+      );
       setTimeout(() => setSaveMessage(''), 2800);
     } catch (error) {
       setSaveError(true);
@@ -231,7 +293,7 @@ export const SettingsScreen = () => {
             <Text style={styles.cardTitle}>Push notifications</Text>
           </View>
           <Text style={styles.cardHint}>
-            Get an alert when your pillow detects snoring. Turn this off to stay silent.
+            Alerts only when consecutive snores hit your threshold or the pump inflates — not every sound.
           </Text>
           <View style={styles.notifyRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
@@ -379,45 +441,51 @@ export const SettingsScreen = () => {
           <View style={styles.settingRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={styles.settingLabel}>Consecutive snore threshold</Text>
-              <Text style={styles.settingHint}>Events before intervention</Text>
+              <Text style={styles.settingHint}>Events before the pump starts</Text>
             </View>
-            <View style={styles.stepper}>
-              <TouchableOpacity
-                style={styles.stepButton}
-                onPress={() => setSnoreThreshold((v) => Math.max(1, v - 1))}
-              >
-                <Text style={styles.stepText}>-</Text>
-              </TouchableOpacity>
-              <Text style={styles.stepValue}>{snoreThreshold}</Text>
-              <TouchableOpacity
-                style={styles.stepButton}
-                onPress={() => setSnoreThreshold((v) => Math.min(10, v + 1))}
-              >
-                <Text style={styles.stepText}>+</Text>
-              </TouchableOpacity>
-            </View>
+            <Stepper
+              value={snoreThreshold}
+              min={1}
+              max={10}
+              onChange={(value) => {
+                markSettingsDirty();
+                setSnoreThreshold(value);
+              }}
+            />
           </View>
 
           <View style={styles.settingRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={styles.settingLabel}>Pump activation duration</Text>
-              <Text style={styles.settingHint}>Seconds of air pump delivery</Text>
+              <Text style={styles.settingHint}>Seconds the air pump stays on (5–120)</Text>
             </View>
-            <View style={styles.stepper}>
-              <TouchableOpacity
-                style={styles.stepButton}
-                onPress={() => setPumpDuration((v) => Math.max(5, v - 1))}
-              >
-                <Text style={styles.stepText}>-</Text>
-              </TouchableOpacity>
-              <Text style={styles.stepValue}>{pumpDuration}s</Text>
-              <TouchableOpacity
-                style={styles.stepButton}
-                onPress={() => setPumpDuration((v) => Math.min(30, v + 1))}
-              >
-                <Text style={styles.stepText}>+</Text>
-              </TouchableOpacity>
+            <Stepper
+              value={pumpDuration}
+              min={PUMP_DURATION_MIN_SEC}
+              max={PUMP_DURATION_MAX_SEC}
+              step={PUMP_DURATION_STEP_SEC}
+              format={(value) => `${value}s`}
+              onChange={(value) => {
+                markSettingsDirty();
+                setPumpDuration(value);
+              }}
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.settingLabel}>Mic shift</Text>
+              <Text style={styles.settingHint}>Higher = closer range (15 default, 16 if still far)</Text>
             </View>
+            <Stepper
+              value={micShift}
+              min={12}
+              max={16}
+              onChange={(value) => {
+                markSettingsDirty();
+                setMicShift(value);
+              }}
+            />
           </View>
 
           {saveMessage ? (
@@ -425,12 +493,11 @@ export const SettingsScreen = () => {
           ) : null}
 
           <TouchableOpacity
-            style={[styles.saveButton, !connected && styles.saveButtonDisabled]}
+            style={styles.saveButton}
             onPress={() => setConfirmVisible(true)}
-            disabled={!connected}
           >
             <Text style={styles.saveButtonText}>
-              {connected ? 'Save Device Settings' : 'Connect to save settings'}
+              {connected ? 'Save Device Settings' : 'Save on Phone (connect pillow to sync)'}
             </Text>
           </TouchableOpacity>
         </GlassCard>
@@ -487,7 +554,7 @@ export const SettingsScreen = () => {
       <ConfirmModal
         visible={confirmVisible}
         title="Save device settings?"
-        message={`Apply threshold ${snoreThreshold} and pump duration ${pumpDuration}s to your smart pillow?`}
+        message={`Apply ${snoreThreshold} snores, ${pumpDuration}s pump, and mic shift ${micShift}?`}
         confirmLabel="Save"
         onConfirm={handleConfirmSave}
         onCancel={() => setConfirmVisible(false)}
@@ -515,25 +582,25 @@ export const SettingsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0b10' },
+  container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 20, paddingBottom: 40 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#9ca3af', marginTop: 12, fontWeight: '600' },
-  title: { color: '#ffffff', fontSize: 28, fontWeight: '800', marginBottom: 6 },
-  subtitle: { color: '#94a3b8', fontSize: 14, marginBottom: 20, lineHeight: 20 },
+  loadingText: { color: colors.textMuted, marginTop: 12, fontWeight: '600' },
+  title: { color: colors.text, fontSize: 28, fontWeight: '800', marginBottom: 6 },
+  subtitle: { color: colors.textMuted, fontSize: 14, marginBottom: 20, lineHeight: 20 },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: colors.border,
     borderRadius: 20,
     padding: 14,
     marginBottom: 16,
   },
   profileCopy: { flex: 1, paddingHorizontal: 14 },
-  profileName: { color: '#ffffff', fontSize: 17, fontWeight: '800', marginBottom: 2 },
-  profileHint: { color: '#94a3b8', fontSize: 13, fontWeight: '600' },
+  profileName: { color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 2 },
+  profileHint: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   notifyRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -553,8 +620,8 @@ const styles = StyleSheet.create({
   },
   testButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   card: { padding: 18, marginBottom: 16 },
-  cardTitle: { color: '#ffffff', fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  cardHint: { color: '#94a3b8', fontSize: 12, lineHeight: 18, marginBottom: 16 },
+  cardTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  cardHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 16 },
   deviceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -576,10 +643,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: colors.border,
   },
-  infoLabel: { color: '#9ca3af', fontSize: 13 },
-  infoValue: { color: '#e5e7eb', fontSize: 13, fontWeight: '600', maxWidth: '62%', textAlign: 'right' },
+  infoLabel: { color: colors.textMuted, fontSize: 13 },
+  infoValue: { color: colors.textSecondary, fontSize: 13, fontWeight: '600', maxWidth: '62%', textAlign: 'right' },
   actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
   actionButton: {
     flex: 1,
@@ -597,48 +664,50 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(239,68,68,0.4)',
   },
   unpairButton: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: colors.backgroundMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: colors.border,
     flex: 0.7,
   },
-  connectText: { color: '#ffffff', fontWeight: '800' },
+  connectText: { color: colors.onAccent, fontWeight: '800' },
   disconnectText: { color: '#fecaca', fontWeight: '800' },
-  unpairText: { color: '#e5e7eb', fontWeight: '700' },
+  unpairText: { color: colors.textSecondary, fontWeight: '700' },
   scanList: { marginTop: 16 },
-  scanTitle: { color: '#cbd5e1', fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  scanTitle: { color: colors.textSecondary, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   deviceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: colors.border,
   },
-  deviceName: { color: '#ffffff', fontWeight: '700', marginBottom: 2 },
-  deviceMeta: { color: '#94a3b8', fontSize: 11 },
-  pairChip: { color: '#c7d2fe', fontWeight: '800' },
+  deviceName: { color: colors.text, fontWeight: '700', marginBottom: 2 },
+  deviceMeta: { color: colors.textMuted, fontSize: 11 },
+  pairChip: { color: colors.accent, fontWeight: '800' },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  settingLabel: { color: '#f3f4f6', fontSize: 13, fontWeight: '700', marginBottom: 2 },
-  settingHint: { color: '#9ca3af', fontSize: 11 },
+  settingLabel: { color: colors.text, fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  settingHint: { color: colors.textMuted, fontSize: 11 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   stepButton: {
-    width: 34,
-    height: 34,
+    width: 44,
+    height: 44,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: colors.backgroundMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' as const } : null),
   },
-  stepText: { color: '#ffffff', fontSize: 18, fontWeight: '700' },
-  stepValue: { color: '#ffffff', fontSize: 16, fontWeight: '700', minWidth: 40, textAlign: 'center' },
+  stepButtonPressed: { backgroundColor: colors.accentSoft },
+  stepText: { color: colors.accent, fontSize: 18, fontWeight: '700' },
+  stepValue: { color: colors.text, fontSize: 16, fontWeight: '700', minWidth: 48, textAlign: 'center' },
   saveButton: {
     backgroundColor: 'rgba(99, 102, 241, 0.9)',
     borderRadius: 14,
@@ -658,26 +727,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(5,6,12,0.72)',
   },
   pinCard: {
-    backgroundColor: 'rgba(24, 27, 46, 0.96)',
+    backgroundColor: colors.surface,
     borderRadius: 22,
     padding: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.14)',
+    borderColor: colors.borderStrong,
   },
-  pinTitle: { color: '#ffffff', fontSize: 18, fontWeight: '800', marginBottom: 6 },
-  pinHint: { color: '#94a3b8', fontSize: 13, lineHeight: 19, marginBottom: 16 },
+  pinTitle: { color: colors.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
+  pinHint: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginBottom: 16 },
   pinRow: { flexDirection: 'row', gap: 6, marginBottom: 12, position: 'relative' },
   pinBox: {
     flex: 1,
     height: 48,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pinBoxFilled: { borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.12)' },
-  pinDigit: { color: '#ffffff', fontSize: 20, fontWeight: '800' },
+  pinBoxFilled: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  pinDigit: { color: colors.text, fontSize: 20, fontWeight: '800' },
   pinOverlayInput: {
     ...StyleSheet.absoluteFillObject,
     color: 'transparent',
@@ -692,9 +761,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: colors.backgroundMuted,
   },
-  pinCancelText: { color: '#e5e7eb', fontWeight: '700' },
+  pinCancelText: { color: colors.textSecondary, fontWeight: '700' },
   pinConfirm: {
     flex: 1,
     borderRadius: 14,

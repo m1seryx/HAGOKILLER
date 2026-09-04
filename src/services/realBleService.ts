@@ -12,19 +12,19 @@ import { BLEDevice, SleepEvent } from '../types';
 import { isValidPairingPin } from '../utils/pinValidation';
 import { loadPairedDevice, savePairedDevice, setDevicePaired, persistPillowEvent } from './userStorage';
 import { DeviceSettings, MockBLEService } from './mockBLEService';
-import { parseEsp32PillowPacket, sleepEventFromEsp32Packet } from './esp32Protocol';
+import { parseEsp32PillowPacket, sleepEventFromEsp32Packet, encodePillowSettings, SETTINGS_CHAR_UUID } from './esp32Protocol';
 
 export const PHONE_SERVICE_UUID = '6ba1d001-8e2a-4b7c-9f10-22c0a1b2c3d4';
 export const PIN_CHAR_UUID = '6ba1d002-8e2a-4b7c-9f10-22c0a1b2c3d4';
 export const AUTH_CHAR_UUID = '6ba1d003-8e2a-4b7c-9f10-22c0a1b2c3d4';
 export const EVENT_CHAR_UUID = '6ba1d004-8e2a-4b7c-9f10-22c0a1b2c3d4';
+export { SETTINGS_CHAR_UUID };
 
 const DEVICE_NAME_MATCH = 'HAGOKILLER';
 const DEMO_PINS = new Set(['1234567', '0000000']);
 
-const toBase64 = (text: string) => {
+const toBase64Bytes = (bytes: Uint8Array) => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  const bytes = Array.from(text).map((c) => c.charCodeAt(0));
   let out = '';
   for (let i = 0; i < bytes.length; i += 3) {
     const a = bytes[i];
@@ -38,6 +38,9 @@ const toBase64 = (text: string) => {
   }
   return out;
 };
+
+const toBase64 = (text: string) =>
+  toBase64Bytes(Uint8Array.from(Array.from(text).map((c) => c.charCodeAt(0))));
 
 const fromBase64 = (value: string): Uint8Array => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -284,6 +287,11 @@ export class RealBleService {
     });
     await setDevicePaired(true);
     this.monitorEvents(connected);
+    try {
+      await this.pushSettingsToDevice(this.getDeviceSettings());
+    } catch {
+      // Older firmware without the settings characteristic can still pair.
+    }
     this.notify();
     return this.pairedDevice;
   }
@@ -332,6 +340,11 @@ export class RealBleService {
     this.connected = true;
     this.pairedDevice = { ...this.pairedDevice, isConnected: true };
     this.monitorEvents(connected);
+    try {
+      await this.pushSettingsToDevice(this.getDeviceSettings());
+    } catch {
+      // Older firmware without the settings characteristic can still connect.
+    }
     this.notify();
     return true;
   }
@@ -387,14 +400,33 @@ export class RealBleService {
     return this.data.clearEvents();
   }
 
-  saveDeviceSettings(settings: DeviceSettings) {
-    return this.data.saveDeviceSettings(settings);
+  async saveDeviceSettings(settings: DeviceSettings) {
+    const saved = await this.data.saveDeviceSettings(settings);
+    if (!this.activeDevice || !this.connected) {
+      return saved;
+    }
+    try {
+      await this.pushSettingsToDevice(saved);
+    } catch {
+      throw new Error('Saved on phone, but the pillow did not accept settings. Upload the latest mic firmware.');
+    }
+    return saved;
   }
 
   getDeviceSettings() {
     return this.data.getDeviceSettings();
   }
+
+  private async pushSettingsToDevice(settings: DeviceSettings): Promise<void> {
+    if (!this.activeDevice || !this.connected) return;
+    const payload = encodePillowSettings(settings);
+    await this.activeDevice.writeCharacteristicWithResponseForService(
+      PHONE_SERVICE_UUID,
+      SETTINGS_CHAR_UUID,
+      toBase64Bytes(payload),
+    );
+  }
 }
 
 export const isNativeBleAvailable = (): boolean =>
-  !!(NativeModules.BleManager || NativeModules.BleClientManager);
+  !!(NativeModules.BlePlx || NativeModules.BleManager || NativeModules.BleClientManager);

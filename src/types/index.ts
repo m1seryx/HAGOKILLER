@@ -6,7 +6,7 @@ export interface SleepEvent {
   duration: number; // Duration in seconds
   severity: 'low' | 'medium' | 'high'; // Based on snoring intensity
   interventionTriggered: boolean;
-  interventionDuration: number; // Duration of air pump activation in seconds
+  interventionDuration: number; // Pump run time in seconds
   /** Where the event came from. ESP32 BLE notifies use 'esp32'. */
   source?: SleepEventSource;
   /** Firmware PumpMsg.event — 1 = snore/sound */
@@ -17,6 +17,8 @@ export interface SleepEvent {
   rms?: number;
   /** Packed BLE payload as hex, for debug */
   rawPayload?: string | null;
+  /** Consecutive snore count from firmware at detection time */
+  snoreStreak?: number;
 }
 
 export interface DailyStats {
@@ -44,11 +46,34 @@ export interface DashboardData {
   allData: SleepEvent[];
 }
 
+export type ActivityId =
+  | 'alcohol'
+  | 'late_meal'
+  | 'exercise'
+  | 'stress'
+  | 'congested'
+  | 'back_sleeper'
+  | 'caffeine'
+  | 'irregular_schedule';
+
+export interface DailyActivityCheckIn {
+  date: string; // YYYY-MM-DD
+  activities: ActivityId[];
+  /** Free-text note for activities not listed above */
+  otherActivityNote?: string | null;
+  updatedAt: number;
+}
+
 export interface RecommendationData {
   severityLevel: 'normal' | 'bad' | 'danger';
   recommendation: string;
   actionItems: string[];
   trendMessage: string;
+  /** Rotating wellness tip that changes each day */
+  dailyTip?: string;
+  /** Summary based on today's activity check-in */
+  activityContext?: string;
+  checkInComplete?: boolean;
 }
 
 export interface BLEDevice {

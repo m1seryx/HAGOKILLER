@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { getSeverityColor, getSeverityLabel } from '../utils/recommendations';
+import { colors } from '../constants/theme';
 
 interface StatsCardProps {
   label: string;
@@ -64,11 +65,11 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: '47%', // Allows side-by-side grid layout
     margin: 4,
-    backgroundColor: 'rgba(26, 27, 38, 0.75)',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: colors.border,
     position: 'relative',
     overflow: 'hidden',
     shadowColor: '#000',
@@ -100,7 +101,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
-    color: '#9ca3af',
+    color: colors.textMuted,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.7,
@@ -116,12 +117,12 @@ const styles = StyleSheet.create({
   value: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#ffffff',
+    color: colors.text,
     letterSpacing: -0.5,
   },
   unit: {
     fontSize: 13,
-    color: '#9ca3af',
+    color: colors.textMuted,
     fontWeight: '500',
   },
   severityBadge: {

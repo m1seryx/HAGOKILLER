@@ -17,6 +17,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { FontAwesome5 } from "@expo/vector-icons";
 import moment from "moment";
 import { UserProfile } from "../types";
+import { colors } from "../constants/theme";
 
 interface NameInputScreenProps {
   onProfileSubmit: (profile: UserProfile) => void;
@@ -325,11 +326,11 @@ const modalStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#0a0b10" },
-  container: { flex: 1, backgroundColor: "#0a0b10" },
+  safeArea: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: colors.background },
   scrollContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 16 },
   card: {
-    backgroundColor: "rgba(26, 27, 38, 0.75)",
+    backgroundColor: colors.surface,
     borderRadius: 24,
     padding: 32,
     alignItems: "center",
@@ -351,7 +352,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: "rgba(26, 27, 38, 0.9)",
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
     borderColor: "rgba(99, 102, 241, 0.5)",
     justifyContent: "center",

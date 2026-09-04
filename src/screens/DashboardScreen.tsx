@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import moment from 'moment';
-import { DashboardData, DailyStats, MonthlyStats, SleepEvent, UserProfile } from '../types';
+import { DashboardData, DailyStats, MonthlyStats, SleepEvent, UserProfile, DailyActivityCheckIn, ActivityId } from '../types';
 import {
   calculateDailyStats,
   calculateMonthlyStats,
@@ -23,11 +23,14 @@ import { getRecommendations, getSeverityColor, getSeverityLabel } from '../utils
 import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
 import { RecommendationCard } from '../components/RecommendationCard';
+import { AssessmentQuestionnaire } from '../components/AssessmentQuestionnaire';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import { calculateDashboardData } from '../services/mockBLEService';
 import { bleService } from '../services/bleService';
+import { loadDailyActivityCheckIn, saveDailyActivityCheckIn } from '../services/userStorage';
+import { colors } from '../constants/theme';
 import { useDevice } from '../context/DeviceContext';
 import { FontAwesome5 } from '@expo/vector-icons';
 
@@ -73,6 +76,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     from: moment().subtract(7, 'days').format('YYYY-MM-DD'),
     to: moment().format('YYYY-MM-DD'),
   });
+  const [todayCheckIn, setTodayCheckIn] = useState<DailyActivityCheckIn | null>(null);
+  const todayDate = moment().format('YYYY-MM-DD');
 
   const { connected, pairedDevice } = useDevice();
   const activeTabRef = useRef<DashboardTab>(activeTab);
@@ -149,6 +154,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           months.length >= 3 ? calculateTrend(months.slice(0, 2)) : 'stable';
       }
       setMonthHistory(months);
+      const checkIn = await loadDailyActivityCheckIn(todayDate);
+      setTodayCheckIn(checkIn);
       const device = bleService.getPairedDevice();
       setDeviceStatus({
         connected: bleService.getIsConnected(),
@@ -177,6 +184,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
+  };
+
+  const handleActivitySave = async (payload: { activities: ActivityId[]; otherActivityNote?: string }) => {
+    const checkIn: DailyActivityCheckIn = {
+      date: todayDate,
+      activities: payload.activities,
+      otherActivityNote: payload.otherActivityNote?.trim() || null,
+      updatedAt: Date.now(),
+    };
+    await saveDailyActivityCheckIn(checkIn);
+    setTodayCheckIn(checkIn);
   };
 
   if (loading) {
@@ -363,7 +381,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
 
   const { stats, trend } = getDisplayStats();
   const { data: chartData, title: chartTitle } = getChartData();
-  const recommendations = getRecommendations(stats, dashboardData.thisMonth, trend);
+  const recommendations = getRecommendations(
+    stats,
+    dashboardData.thisMonth,
+    trend,
+    todayCheckIn,
+    todayDate,
+  );
   const severityColor = getSeverityColor(stats.severity);
   const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
   const lowBattery = deviceStatus.battery <= 20;
@@ -448,7 +472,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
             <FontAwesome5
               name="chart-pie"
               size={13}
-              color={activeTab === 'analytics' ? '#ffffff' : '#6b7280'}
+              color={activeTab === 'analytics' ? colors.onAccent : colors.textMuted}
               style={{ marginRight: 6 }}
             />
             <Text style={[styles.tabText, activeTab === 'analytics' && styles.tabTextActive]}>
@@ -463,7 +487,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
             <FontAwesome5
               name="stethoscope"
               size={13}
-              color={activeTab === 'recommendations' ? '#ffffff' : '#6b7280'}
+              color={activeTab === 'recommendations' ? colors.onAccent : colors.textMuted}
               style={{ marginRight: 6 }}
             />
             <Text
@@ -480,7 +504,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
             <FontAwesome5
               name="clipboard-list"
               size={13}
-              color={activeTab === 'logs' ? '#ffffff' : '#6b7280'}
+              color={activeTab === 'logs' ? colors.onAccent : colors.textMuted}
               style={{ marginRight: 6 }}
             />
             <Text style={[styles.tabText, activeTab === 'logs' && styles.tabTextActive]}>Logs</Text>
@@ -633,6 +657,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
             </>
           ) : activeTab === 'recommendations' ? (
             <View style={styles.recommendationSection}>
+              <AssessmentQuestionnaire
+                initialActivities={todayCheckIn?.activities ?? []}
+                initialOtherNote={todayCheckIn?.otherActivityNote ?? ''}
+                savedForToday={!!todayCheckIn}
+                onSave={handleActivitySave}
+              />
               <RecommendationCard data={recommendations} />
             </View>
           ) : (
@@ -767,10 +797,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0a0b10' },
+  container: { flex: 1, backgroundColor: colors.background },
   loadingContainer: {
     flex: 1,
-    backgroundColor: '#0a0b10',
+    backgroundColor: colors.background,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -809,38 +839,38 @@ const styles = StyleSheet.create({
   headerGlass: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 22,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: colors.border,
     paddingHorizontal: 18,
     paddingVertical: 16,
   },
   headerContent: { flex: 1, paddingRight: 12 },
   brand: {
-    color: '#818cf8',
+    color: colors.accent,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.6,
     marginBottom: 4,
   },
-  greeting: { fontSize: 24, fontWeight: '800', color: '#ffffff', marginBottom: 6 },
+  greeting: { fontSize: 24, fontWeight: '800', color: colors.text, marginBottom: 6 },
   statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
   liveDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-  statusLabel: { fontSize: 13, color: '#9ca3af' },
+  statusLabel: { fontSize: 13, color: colors.textMuted },
   statusValue: { fontSize: 13, fontWeight: '700' },
-  headerSubtitle: { fontSize: 12, color: '#6b7280' },
+  headerSubtitle: { fontSize: 12, color: colors.textMuted },
   profileButton: { alignItems: 'center', justifyContent: 'center' },
 
   alertBanner: { marginHorizontal: 16, marginBottom: 12, padding: 14 },
   alertRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  alertTitle: { fontSize: 12, fontWeight: '700', color: '#fbbf24', marginBottom: 2 },
-  alertText: { fontSize: 12, color: '#fde68a', lineHeight: 18 },
+  alertTitle: { fontSize: 12, fontWeight: '700', color: '#b45309', marginBottom: 2 },
+  alertText: { fontSize: 12, color: '#92400e', lineHeight: 18 },
 
   sectionPadding: { paddingHorizontal: 16, marginBottom: 8 },
   swipeHint: {
     textAlign: 'center',
-    color: '#64748b',
+    color: colors.textMuted,
     fontSize: 11,
     marginBottom: 10,
     fontWeight: '500',
@@ -850,11 +880,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 16,
     marginBottom: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: colors.backgroundMuted,
     borderRadius: 14,
     padding: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: colors.border,
   },
   tabButton: {
     flex: 1,
@@ -864,9 +894,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 10,
   },
-  tabButtonActive: { backgroundColor: 'rgba(99, 102, 241, 0.28)' },
-  tabText: { fontSize: 12, fontWeight: '600', color: '#6b7280' },
-  tabTextActive: { color: '#ffffff', fontWeight: '700' },
+  tabButtonActive: { backgroundColor: colors.accent },
+  tabText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
+  tabTextActive: { color: colors.onAccent, fontWeight: '700' },
 
   metricsSection: {
     flexDirection: 'row',
@@ -879,7 +909,7 @@ const styles = StyleSheet.create({
   trendLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9ca3af',
+    color: colors.textMuted,
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -891,7 +921,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: colors.border,
   },
   trendSummaryText: { fontSize: 13, fontWeight: '700' },
   monthRow: {
@@ -901,10 +931,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: colors.border,
   },
   monthLeft: { flex: 1 },
-  monthName: { fontSize: 14, fontWeight: '600', color: '#e5e7eb', marginBottom: 4 },
+  monthName: { fontSize: 14, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 },
   monthSeverityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -916,43 +946,43 @@ const styles = StyleSheet.create({
   monthDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
   monthSeverityText: { fontSize: 11, fontWeight: '700' },
   monthRight: { alignItems: 'flex-end' },
-  monthEvents: { fontSize: 22, fontWeight: '800', color: '#ffffff' },
-  monthEventsLabel: { fontSize: 10, color: '#6b7280', marginTop: -2 },
+  monthEvents: { fontSize: 22, fontWeight: '800', color: colors.text },
+  monthEventsLabel: { fontSize: 10, color: colors.textMuted, marginTop: -2 },
   monthChange: { flexDirection: 'row', alignItems: 'center', marginTop: 2, gap: 3 },
   monthChangeText: { fontSize: 11, fontWeight: '700' },
 
   recommendationSection: { paddingHorizontal: 16, marginBottom: 16 },
   logsSection: { paddingHorizontal: 16, marginBottom: 20 },
   logsCard: { padding: 16 },
-  sectionHeader: { fontSize: 16, fontWeight: '700', color: '#ffffff', marginBottom: 6 },
-  settingDescription: { fontSize: 12, color: '#9ca3af', marginBottom: 4, lineHeight: 18 },
+  sectionHeader: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 6 },
+  settingDescription: { fontSize: 12, color: colors.textMuted, marginBottom: 4, lineHeight: 18 },
   logsHeader: {
     marginBottom: 14,
   },
   sortRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
-  sortLabel: { color: '#9ca3af', fontSize: 12, fontWeight: '600', marginRight: 4 },
+  sortLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600', marginRight: 4 },
   sortOption: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
+    backgroundColor: colors.backgroundMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.border,
   },
   sortOptionActive: {
-    backgroundColor: 'rgba(99,102,241,0.2)',
-    borderColor: 'rgba(99,102,241,0.4)',
+    backgroundColor: colors.accentSoft,
+    borderColor: 'rgba(99,102,241,0.35)',
   },
-  sortOptionText: { color: '#9ca3af', fontSize: 12, fontWeight: '600' },
-  sortOptionTextActive: { color: '#ffffff' },
+  sortOptionText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  sortOptionTextActive: { color: colors.accent },
   emptyLogsRow: { paddingVertical: 20 },
-  emptyLogsText: { fontSize: 13, color: '#9ca3af' },
+  emptyLogsText: { fontSize: 13, color: colors.textMuted },
   logRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: colors.border,
     borderRadius: 14,
     padding: 12,
     marginBottom: 8,
@@ -966,8 +996,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   logContent: { flex: 1, paddingRight: 8 },
-  logTimestamp: { color: '#f8fafc', fontSize: 13, fontWeight: '700', marginBottom: 2 },
-  logDetails: { color: '#94a3b8', fontSize: 12, lineHeight: 17 },
+  logTimestamp: { color: colors.text, fontSize: 13, fontWeight: '700', marginBottom: 2 },
+  logDetails: { color: colors.textMuted, fontSize: 12, lineHeight: 17 },
   logRight: { alignItems: 'flex-end' },
   severityPill: {
     borderRadius: 999,
@@ -976,7 +1006,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   severityText: { fontSize: 11, fontWeight: '800' },
-  logDuration: { color: '#e5e7eb', fontSize: 13, fontWeight: '700' },
+  logDuration: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
   paginationRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -984,7 +1014,7 @@ const styles = StyleSheet.create({
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: colors.border,
   },
   paginationButton: {
     flexDirection: 'row',
@@ -993,13 +1023,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
-    backgroundColor: 'rgba(99, 102, 241, 0.2)',
+    backgroundColor: colors.accent,
     borderWidth: 1,
-    borderColor: 'rgba(99, 102, 241, 0.35)',
+    borderColor: colors.accent,
   },
   paginationButtonDisabled: { opacity: 0.35 },
-  paginationButtonText: { color: '#ffffff', fontSize: 12, fontWeight: '700' },
-  paginationLabel: { color: '#9ca3af', fontSize: 12, fontWeight: '600' },
+  paginationButtonText: { color: colors.onAccent, fontSize: 12, fontWeight: '700' },
+  paginationLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
 
   footerContainer: {
     flexDirection: 'row',

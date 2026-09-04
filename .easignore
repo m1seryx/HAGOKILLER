@@ -2,4 +2,7 @@
 android/
 ios/
 firmware/
+dataset/
 .expo/
+*.zip
+*.tgz

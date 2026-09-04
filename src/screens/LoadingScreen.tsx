@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { View, StyleSheet, ActivityIndicator, Text, Animated, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { colors } from '../constants/theme';
 
 interface LoadingScreenProps {
   onLoadingComplete: () => void;
@@ -62,7 +63,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
 const styles = StyleSheet.create({
   container: {
     flex: 1, 
-    backgroundColor: '#0a0b10', // Space Midnight Black
+    backgroundColor: colors.background,
     justifyContent: 'space-between', 
     alignItems: 'center', 
     paddingBottom: 40,
@@ -101,7 +102,7 @@ const styles = StyleSheet.create({
   titlePrefix: { 
     fontSize: 36, 
     fontWeight: '900', 
-    color: '#ffffff', 
+    color: colors.text, 
     letterSpacing: 2,
   },
   titleSuffix: { 
@@ -109,7 +110,7 @@ const styles = StyleSheet.create({
   },
   subtitle: { 
     fontSize: 10, 
-    color: '#9ca3af', 
+    color: colors.textMuted, 
     letterSpacing: 4, 
     marginTop: 8,
     fontWeight: '700',
@@ -122,7 +123,7 @@ const styles = StyleSheet.create({
   },
   loadingText: { 
     fontSize: 12, 
-    color: '#6b7280', 
+    color: colors.textMuted, 
     marginTop: 16, 
     fontWeight: '600',
     letterSpacing: 0.5,

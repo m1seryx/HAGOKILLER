@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SleepEvent, UserProfile } from '../types';
+import { DailyActivityCheckIn, SleepEvent, UserProfile } from '../types';
+import { DeviceSettings, normalizeDeviceSettings } from './deviceSettings';
 
 const DB_NAME = 'hagokiller.db';
 
@@ -16,10 +17,7 @@ export interface StoredPairedDevice {
   signalStrength: number;
 }
 
-export interface StoredDeviceSettings {
-  snoreThreshold: number;
-  pumpDuration: number;
-}
+export type StoredDeviceSettings = DeviceSettings;
 
 let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
@@ -63,7 +61,8 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
     CREATE TABLE IF NOT EXISTS device_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       snore_threshold INTEGER NOT NULL,
-      pump_duration INTEGER NOT NULL
+      pump_duration INTEGER NOT NULL,
+      mic_shift INTEGER NOT NULL DEFAULT 14
     );
 
     CREATE TABLE IF NOT EXISTS sleep_events (
@@ -84,8 +83,42 @@ async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {
   `);
 
   await ensureSleepEventColumns(db);
+  await ensureDeviceSettingsColumns(db);
+  await migratePumpDurationToSeconds(db);
   await migrateFromAsyncStorage(db);
   return db;
+}
+
+async function ensureDeviceSettingsColumns(db: SQLite.SQLiteDatabase): Promise<void> {
+  const cols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(device_settings)');
+  const names = new Set(cols.map((col) => col.name));
+  if (!names.has('mic_shift')) {
+    await db.execAsync('ALTER TABLE device_settings ADD COLUMN mic_shift INTEGER NOT NULL DEFAULT 14');
+  }
+}
+
+async function migratePumpDurationToSeconds(db: SQLite.SQLiteDatabase): Promise<void> {
+  // One-time cleanup: older builds wrongly turned 5–10 *seconds* into minutes*60.
+  const already = await getKv(db, 'pump_duration_seconds_v3');
+  if (already === '1') return;
+
+  const row = await db.getFirstAsync<{ pump_duration: number }>(
+    'SELECT pump_duration FROM device_settings WHERE id = 1',
+  );
+
+  if (row) {
+    let pump = row.pump_duration;
+    // Values left at the old max (120) after the bad *60 conversion are not trusted;
+    // reset to the default 12s so the user can set a real duration again.
+    if (pump === 120 || pump === 60 || pump === 300 || pump > 120) {
+      pump = 12;
+    }
+    if (pump < 5) pump = 12;
+    if (pump > 120) pump = 120;
+    await db.runAsync('UPDATE device_settings SET pump_duration = ? WHERE id = 1', [pump]);
+  }
+
+  await setKv(db, 'pump_duration_seconds_v3', '1');
 }
 
 async function ensureSleepEventColumns(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -292,26 +325,31 @@ export async function dbSaveNotificationsEnabled(enabled: boolean): Promise<void
 
 export async function dbSaveDeviceSettings(settings: StoredDeviceSettings): Promise<void> {
   const db = await initDatabase();
+  const next = normalizeDeviceSettings(settings);
   await db.runAsync(
-    `INSERT INTO device_settings (id, snore_threshold, pump_duration)
-     VALUES (1, ?, ?)
+    `INSERT INTO device_settings (id, snore_threshold, pump_duration, mic_shift)
+     VALUES (1, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        snore_threshold = excluded.snore_threshold,
-       pump_duration = excluded.pump_duration`,
-    [settings.snoreThreshold, settings.pumpDuration],
+       pump_duration = excluded.pump_duration,
+       mic_shift = excluded.mic_shift`,
+    [next.snoreThreshold, next.pumpDuration, next.micShift],
   );
 }
 
 export async function dbLoadDeviceSettings(): Promise<StoredDeviceSettings | null> {
   const db = await initDatabase();
-  const row = await db.getFirstAsync<{ snore_threshold: number; pump_duration: number }>(
-    'SELECT snore_threshold, pump_duration FROM device_settings WHERE id = 1',
-  );
+  const row = await db.getFirstAsync<{
+    snore_threshold: number;
+    pump_duration: number;
+    mic_shift: number | null;
+  }>('SELECT snore_threshold, pump_duration, mic_shift FROM device_settings WHERE id = 1');
   if (!row) return null;
-  return {
+  return normalizeDeviceSettings({
     snoreThreshold: row.snore_threshold,
     pumpDuration: row.pump_duration,
-  };
+    micShift: row.mic_shift ?? 14,
+  });
 }
 
 export async function dbLoadSleepEvents(): Promise<SleepEvent[]> {
@@ -415,6 +453,41 @@ export async function dbDeleteSleepEvent(eventId: string): Promise<boolean> {
 export async function dbClearSleepEvents(): Promise<void> {
   const db = await initDatabase();
   await db.runAsync('DELETE FROM sleep_events');
+}
+
+const DAILY_ACTIVITY_KV = 'daily_activity_checkins';
+
+export async function dbSaveDailyActivityCheckIn(checkIn: DailyActivityCheckIn): Promise<void> {
+  const db = await initDatabase();
+  const raw = await getKv(db, DAILY_ACTIVITY_KV);
+  let map: Record<string, DailyActivityCheckIn> = {};
+  if (raw) {
+    try {
+      map = JSON.parse(raw) as Record<string, DailyActivityCheckIn>;
+    } catch {
+      map = {};
+    }
+  }
+  map[checkIn.date] = checkIn;
+  const dates = Object.keys(map).sort();
+  if (dates.length > 60) {
+    for (const oldDate of dates.slice(0, dates.length - 60)) {
+      delete map[oldDate];
+    }
+  }
+  await setKv(db, DAILY_ACTIVITY_KV, JSON.stringify(map));
+}
+
+export async function dbLoadDailyActivityCheckIn(date: string): Promise<DailyActivityCheckIn | null> {
+  const db = await initDatabase();
+  const raw = await getKv(db, DAILY_ACTIVITY_KV);
+  if (!raw) return null;
+  try {
+    const map = JSON.parse(raw) as Record<string, DailyActivityCheckIn>;
+    return map[date] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function dbClearUserData(): Promise<void> {

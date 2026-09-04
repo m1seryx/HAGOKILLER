@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import moment from 'moment';
+import { colors } from '../constants/theme';
 
 export type TimePeriod = 'today' | 'week' | 'month' | 'range';
 
@@ -67,7 +68,7 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
               <Text style={styles.rangeLabel}>From</Text>
               <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(from).toDate()); setPickerVisible('from'); }}>
                 <FontAwesome5 name="calendar-alt" size={12} color="#6366f1" style={{ marginRight: 6 }} />
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{from}</Text>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{from}</Text>
               </TouchableOpacity>
             </View>
 
@@ -75,7 +76,7 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
               <Text style={styles.rangeLabel}>To</Text>
               <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(to).toDate()); setPickerVisible('to'); }}>
                 <FontAwesome5 name="calendar-alt" size={12} color="#6366f1" style={{ marginRight: 6 }} />
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>{to}</Text>
+                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{to}</Text>
               </TouchableOpacity>
             </View>
 
@@ -182,19 +183,19 @@ const styles = StyleSheet.create({
   filterText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#9ca3af',
+    color: colors.textMuted,
   },
   filterTextActive: {
-    color: '#ffffff',
+    color: colors.onAccent,
     fontWeight: '700',
   },
   rangeContainer: {
     marginTop: 12,
     padding: 12,
-    backgroundColor: 'rgba(26, 27, 38, 0.5)',
+    backgroundColor: colors.surfaceMuted,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: colors.border,
   },
   rangeRow: {
     flexDirection: 'row',
@@ -206,7 +207,7 @@ const styles = StyleSheet.create({
   },
   rangeLabel: {
     fontSize: 10,
-    color: '#9ca3af',
+    color: colors.textMuted,
     marginBottom: 6,
     fontWeight: '700',
     textTransform: 'uppercase',
@@ -215,10 +216,10 @@ const styles = StyleSheet.create({
   rangeInputButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2d2d44',
+    backgroundColor: colors.background,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#3d3d5c',
+    borderColor: colors.border,
     paddingHorizontal: 10,
     paddingVertical: 8,
     minHeight: 36,
@@ -245,16 +246,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   modalMenu: { 
-    backgroundColor: '#2d2d44', 
+    backgroundColor: colors.surface, 
     borderRadius: 14, 
     overflow: 'hidden', 
     padding: 12,
     borderWidth: 1,
-    borderColor: '#3d3d5c',
+    borderColor: colors.border,
   },
   modalTitle: { 
     fontSize: 14, 
-    color: '#ffffff', 
+    color: colors.text, 
     fontWeight: '700', 
     textTransform: 'uppercase', 
     textAlign: 'center',
@@ -272,7 +273,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', 
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#3d3d5c',
+    borderBottomColor: colors.border,
     marginBottom: 8,
   },
   weekdayRow: { 
@@ -284,7 +285,7 @@ const styles = StyleSheet.create({
   weekdayText: { 
     width: 32, 
     textAlign: 'center', 
-    color: '#9ca3af', 
+    color: colors.textMuted, 
     fontSize: 12,
     fontWeight: '600',
   },

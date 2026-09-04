@@ -23,6 +23,7 @@ import {
   setupSnoreNotifications,
   notifySnoreDetected,
 } from './src/services/snoreNotifications';
+import { colors } from './src/constants/theme';
 import {
   initDatabase,
   saveUserProfile,
@@ -69,8 +70,8 @@ const MainTabs = () => (
       tabBarShowLabel: false,
       tabBarHideOnKeyboard: true,
       tabBarStyle: {
-        backgroundColor: 'rgba(12, 13, 20, 0.98)',
-        borderTopColor: 'rgba(255,255,255,0.08)',
+        backgroundColor: colors.tabBar,
+        borderTopColor: colors.tabBarBorder,
         borderTopWidth: StyleSheet.hairlineWidth,
         paddingTop: 8,
         paddingHorizontal: 10,
@@ -80,8 +81,8 @@ const MainTabs = () => (
       tabBarItemStyle: {
         paddingVertical: 6,
       },
-      tabBarActiveTintColor: '#a5b4fc',
-      tabBarInactiveTintColor: '#6b7280',
+      tabBarActiveTintColor: colors.accent,
+      tabBarInactiveTintColor: colors.textMuted,
     }}
   >
     <Tab.Screen
@@ -176,7 +177,7 @@ export default function App() {
     ...DefaultTheme,
     colors: {
       ...DefaultTheme.colors,
-      background: '#0a0b10',
+      background: colors.background,
     },
   };
 
@@ -260,7 +261,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0b10',
+    backgroundColor: colors.background,
     ...Platform.select({
       web: {
         height: '100%',
@@ -271,11 +272,11 @@ const styles = StyleSheet.create({
   },
   crash: {
     flex: 1,
-    backgroundColor: '#0a0b10',
+    backgroundColor: colors.background,
     justifyContent: 'center',
     padding: 24,
   },
-  crashTitle: { color: '#ffffff', fontSize: 20, fontWeight: '800', marginBottom: 8 },
+  crashTitle: { color: colors.text, fontSize: 20, fontWeight: '800', marginBottom: 8 },
   crashBody: { color: '#fca5a5', fontSize: 14, lineHeight: 20 },
   tabIconWell: {
     width: 44,
@@ -285,6 +286,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   tabIconWellActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.22)',
+    backgroundColor: colors.accentSoft,
   },
 });

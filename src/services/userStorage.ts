@@ -1,4 +1,4 @@
-import { UserProfile, SleepEvent } from '../types';
+import { DailyActivityCheckIn, UserProfile, SleepEvent } from '../types';
 import {
   initDatabase,
   dbSaveUserProfile,
@@ -18,6 +18,8 @@ import {
   dbDeleteSleepEvent,
   dbClearSleepEvents,
   dbClearUserData,
+  dbSaveDailyActivityCheckIn,
+  dbLoadDailyActivityCheckIn,
   StoredPairedDevice,
   StoredDeviceSettings,
 } from './database';
@@ -57,3 +59,8 @@ export const deleteStoredEvent = (eventId: string) => dbDeleteSleepEvent(eventId
 export const clearStoredEvents = () => dbClearSleepEvents();
 
 export const clearUserData = () => dbClearUserData();
+
+export const saveDailyActivityCheckIn = (checkIn: DailyActivityCheckIn) =>
+  dbSaveDailyActivityCheckIn(checkIn);
+
+export const loadDailyActivityCheckIn = (date: string) => dbLoadDailyActivityCheckIn(date);

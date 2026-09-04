@@ -4,6 +4,10 @@ dist/
 web-build/
 android/
 ios/
+dataset/
+firmware/
+*.zip
+*.tgz
 *.jks
 *.p8
 *.p12
