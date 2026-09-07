@@ -1,2 +1,2 @@
-export { getRecommendations, getSeverityColor, getSeverityLabel } from './recommendations';
+export { getRecommendations, getSeverityColor, getSeverityLabel, getMoodStatus } from './recommendations';
 export { calculateDailyStats, calculateMonthlyStats, calculateTrend, calculateDailySeverity } from './statsCalculator';

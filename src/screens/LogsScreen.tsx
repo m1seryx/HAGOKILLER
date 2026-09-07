@@ -108,11 +108,11 @@ export const LogsScreen = () => {
 
     return (
       <View style={styles.logCard}>
-        <View style={[styles.iconWrap, { backgroundColor: isIntervention ? 'rgba(99,102,241,0.16)' : sev.bg }]}>
+        <View style={[styles.iconWrap, { backgroundColor: isIntervention ? 'rgba(14,165,233,0.16)' : sev.bg }]}>
           <FontAwesome5
             name={isIntervention ? 'wind' : 'wave-square'}
             size={14}
-            color={isIntervention ? '#818cf8' : sev.color}
+            color={isIntervention ? '#0284c7' : sev.color}
           />
         </View>
         <View style={styles.logBody}>
@@ -142,7 +142,7 @@ export const LogsScreen = () => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <View style={styles.headerIcon}>
-          <FontAwesome5 name="clipboard-list" size={16} color="#c7d2fe" />
+          <FontAwesome5 name="clipboard-list" size={16} color="#0284c7" />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Historical Logs</Text>
@@ -205,7 +205,7 @@ export const LogsScreen = () => {
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <View style={styles.emptyIcon}>
-              <FontAwesome5 name="moon" size={18} color="#818cf8" />
+              <FontAwesome5 name="moon" size={18} color="#0284c7" />
             </View>
             <Text style={styles.emptyText}>No events for this filter.</Text>
           </View>
@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: 12,
-    backgroundColor: 'rgba(99, 102, 241, 0.22)',
+    backgroundColor: 'rgba(14, 165, 233, 0.22)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
@@ -336,7 +336,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 14,
-    backgroundColor: 'rgba(99,102,241,0.16)',
+    backgroundColor: 'rgba(14,165,233,0.16)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 12,

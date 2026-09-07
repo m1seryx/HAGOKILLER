@@ -28,6 +28,10 @@ import {
   setNotificationsEnabled,
   sendTestNotification,
 } from '../services/snoreNotifications';
+import {
+  cancelDailyAdviceNotifications,
+  scheduleDailyAdviceNotifications,
+} from '../services/dailyAdviceNotifications';
 import { BLEDevice } from '../types';
 import { isValidPairingPin } from '../utils/pinValidation';
 import { colors } from '../constants/theme';
@@ -35,7 +39,11 @@ import {
   PUMP_DURATION_MAX_SEC,
   PUMP_DURATION_MIN_SEC,
   PUMP_DURATION_STEP_SEC,
+  SNORE_WINDOW_MAX_SEC,
+  SNORE_WINDOW_MIN_SEC,
+  SNORE_WINDOW_STEP_SEC,
 } from '../services/deviceSettings';
+import type { PillowCommand } from '../services/esp32Protocol';
 
 const PIN_LENGTH = 7;
 
@@ -88,6 +96,7 @@ export const SettingsScreen = () => {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [snoreThreshold, setSnoreThreshold] = useState(3);
+  const [snoreWindowSec, setSnoreWindowSec] = useState(15);
   const [pumpDuration, setPumpDuration] = useState(12);
   const [micShift, setMicShift] = useState(15);
   const settingsDirtyRef = useRef(false);
@@ -96,6 +105,11 @@ export const SettingsScreen = () => {
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [disconnectVisible, setDisconnectVisible] = useState(false);
   const [unpairVisible, setUnpairVisible] = useState(false);
+  const [stopConfirmVisible, setStopConfirmVisible] = useState(false);
+  const [valveConfirmVisible, setValveConfirmVisible] = useState(false);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const [commandMessage, setCommandMessage] = useState('');
+  const [commandError, setCommandError] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [selectedDevice, setSelectedDevice] = useState<BLEDevice | null>(null);
   const [pin, setPin] = useState('');
@@ -113,6 +127,7 @@ export const SettingsScreen = () => {
   const loadStoredSettings = useCallback(() => {
     const settings = bleService.getDeviceSettings();
     setSnoreThreshold(settings.snoreThreshold);
+    setSnoreWindowSec(settings.snoreWindowSec);
     setPumpDuration(settings.pumpDuration);
     setMicShift(settings.micShift);
     settingsDirtyRef.current = false;
@@ -140,8 +155,14 @@ export const SettingsScreen = () => {
   const handleConfirmSave = async () => {
     setConfirmVisible(false);
     try {
-      const saved = await bleService.saveDeviceSettings({ snoreThreshold, pumpDuration, micShift });
+      const saved = await bleService.saveDeviceSettings({
+        snoreThreshold,
+        snoreWindowSec,
+        pumpDuration,
+        micShift,
+      });
       setSnoreThreshold(saved.snoreThreshold);
+      setSnoreWindowSec(saved.snoreWindowSec);
       setPumpDuration(saved.pumpDuration);
       setMicShift(saved.micShift);
       settingsDirtyRef.current = false;
@@ -154,6 +175,29 @@ export const SettingsScreen = () => {
       setSaveError(true);
       setSaveMessage(error instanceof Error ? error.message : 'Failed to save settings');
       setTimeout(() => setSaveMessage(''), 3200);
+    }
+  };
+
+  const runPillowCommand = async (command: PillowCommand) => {
+    setStopConfirmVisible(false);
+    setValveConfirmVisible(false);
+    setCommandBusy(true);
+    setCommandMessage('');
+    try {
+      await bleService.sendDeviceCommand(command, command === 'open_valve' ? 8 : 0);
+      setCommandError(false);
+      setCommandMessage(
+        command === 'emergency_stop'
+          ? 'Air pump stop sent — pump should turn off (needs updated firmware).'
+          : 'Open valve sent — solenoid should release air (needs updated firmware).',
+      );
+      setTimeout(() => setCommandMessage(''), 4000);
+    } catch (error) {
+      setCommandError(true);
+      setCommandMessage(error instanceof Error ? error.message : 'Command failed');
+      setTimeout(() => setCommandMessage(''), 4000);
+    } finally {
+      setCommandBusy(false);
     }
   };
 
@@ -229,8 +273,14 @@ export const SettingsScreen = () => {
       setNotificationsOn(false);
       Alert.alert(
         'Permission needed',
-        'Enable notifications in your system settings to receive snore alerts.',
+        'Enable notifications in your system settings to receive snore alerts and daily tips.',
       );
+      return;
+    }
+    if (applied && next) {
+      await scheduleDailyAdviceNotifications('normal', 'stable');
+    } else {
+      await cancelDailyAdviceNotifications();
     }
   };
 
@@ -252,7 +302,7 @@ export const SettingsScreen = () => {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.center}>
-          <ActivityIndicator color="#6366f1" size="large" />
+          <ActivityIndicator color="#0ea5e9" size="large" />
           <Text style={styles.loadingText}>Loading device settings…</Text>
         </View>
       </SafeAreaView>
@@ -289,11 +339,12 @@ export const SettingsScreen = () => {
 
         <GlassCard style={styles.card}>
           <View style={styles.deviceTitleRow}>
-            <FontAwesome5 name="bell" size={16} color="#818cf8" />
+            <FontAwesome5 name="bell" size={16} color="#0284c7" />
             <Text style={styles.cardTitle}>Push notifications</Text>
           </View>
           <Text style={styles.cardHint}>
-            Alerts only when consecutive snores hit your threshold or the pump inflates — not every sound.
+            Snore alerts when your threshold is hit or the pump inflates. A rule-based sleep tip is
+            also sent every day at 8:00 AM even if the app is closed.
           </Text>
           <View style={styles.notifyRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
@@ -305,8 +356,8 @@ export const SettingsScreen = () => {
             <Switch
               value={notificationsOn}
               onValueChange={handleToggleNotifications}
-              trackColor={{ false: '#374151', true: '#6366f1' }}
-              thumbColor={notificationsOn ? '#c7d2fe' : '#9ca3af'}
+              trackColor={{ false: '#e0f2fe', true: '#0ea5e9' }}
+              thumbColor={notificationsOn ? '#0284c7' : '#94a3b8'}
               ios_backgroundColor="#374151"
             />
           </View>
@@ -329,7 +380,7 @@ export const SettingsScreen = () => {
         <GlassCard style={styles.card}>
           <View style={styles.deviceHeader}>
             <View style={styles.deviceTitleRow}>
-              <FontAwesome5 name="bluetooth-b" size={16} color="#818cf8" />
+              <FontAwesome5 name="bluetooth-b" size={16} color="#0284c7" />
               <Text style={styles.cardTitle}>Device pairing</Text>
             </View>
             <View style={[styles.badge, { backgroundColor: statusColor + '22' }]}>
@@ -435,13 +486,15 @@ export const SettingsScreen = () => {
         <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>Device Parameter Settings</Text>
           <Text style={styles.cardHint}>
-            Adjust snore detection and pump behavior for the connected pillow.
+            Pump starts when enough snore events land inside the detection window (default: 3 in 15s).
           </Text>
 
           <View style={styles.settingRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={styles.settingLabel}>Consecutive snore threshold</Text>
-              <Text style={styles.settingHint}>Events before the pump starts</Text>
+              <Text style={styles.settingLabel}>Snoring events to trigger</Text>
+              <Text style={styles.settingHint}>
+                Count of snore detections inside the window (default 3)
+              </Text>
             </View>
             <Stepper
               value={snoreThreshold}
@@ -450,6 +503,26 @@ export const SettingsScreen = () => {
               onChange={(value) => {
                 markSettingsDirty();
                 setSnoreThreshold(value);
+              }}
+            />
+          </View>
+
+          <View style={styles.settingRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.settingLabel}>Detection window</Text>
+              <Text style={styles.settingHint}>
+                If {snoreThreshold} snores occur within this time, the pump starts (default 15s)
+              </Text>
+            </View>
+            <Stepper
+              value={snoreWindowSec}
+              min={SNORE_WINDOW_MIN_SEC}
+              max={SNORE_WINDOW_MAX_SEC}
+              step={SNORE_WINDOW_STEP_SEC}
+              format={(value) => `${value}s`}
+              onChange={(value) => {
+                markSettingsDirty();
+                setSnoreWindowSec(value);
               }}
             />
           </View>
@@ -499,6 +572,42 @@ export const SettingsScreen = () => {
             <Text style={styles.saveButtonText}>
               {connected ? 'Save Device Settings' : 'Save on Phone (connect pillow to sync)'}
             </Text>
+          </TouchableOpacity>
+        </GlassCard>
+
+        <GlassCard style={styles.card}>
+          <Text style={styles.cardTitle}>Prototype safety controls</Text>
+          <Text style={styles.cardHint}>
+            Use if inflation fails or the pillow stays pressurized. Requires updated pillow firmware;
+            the app sends the BLE command when connected.
+          </Text>
+
+          {commandMessage ? (
+            <Text style={[styles.saveMessage, commandError && styles.saveError]}>{commandMessage}</Text>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.dangerButton, (!connected || commandBusy) && styles.saveButtonDisabled]}
+            onPress={() => setStopConfirmVisible(true)}
+            disabled={!connected || commandBusy}
+          >
+            {commandBusy ? (
+              <ActivityIndicator color="#ffffff" size="small" />
+            ) : (
+              <>
+                <FontAwesome5 name="stop-circle" size={14} color="#ffffff" />
+                <Text style={styles.dangerButtonText}>Manual stop air pump</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.valveButton, (!connected || commandBusy) && styles.saveButtonDisabled]}
+            onPress={() => setValveConfirmVisible(true)}
+            disabled={!connected || commandBusy}
+          >
+            <FontAwesome5 name="wind" size={14} color="#ffffff" />
+            <Text style={styles.dangerButtonText}>Open solenoid valve (release air)</Text>
           </TouchableOpacity>
         </GlassCard>
       </ScrollView>
@@ -554,10 +663,27 @@ export const SettingsScreen = () => {
       <ConfirmModal
         visible={confirmVisible}
         title="Save device settings?"
-        message={`Apply ${snoreThreshold} snores, ${pumpDuration}s pump, and mic shift ${micShift}?`}
+        message={`Trigger after ${snoreThreshold} snores in ${snoreWindowSec}s, pump ${pumpDuration}s, mic shift ${micShift}?`}
         confirmLabel="Save"
         onConfirm={handleConfirmSave}
         onCancel={() => setConfirmVisible(false)}
+      />
+      <ConfirmModal
+        visible={stopConfirmVisible}
+        title="Stop the air pump?"
+        message="Turns the air pump off immediately if a prototype failure occurs mid-inflate. Does not open the solenoid — use Release air for that."
+        confirmLabel="Stop pump"
+        destructive
+        onConfirm={() => runPillowCommand('emergency_stop')}
+        onCancel={() => setStopConfirmVisible(false)}
+      />
+      <ConfirmModal
+        visible={valveConfirmVisible}
+        title="Open solenoid valve?"
+        message="Opens the valve to release air from the pillow. Confirm only when you need to deflate safely."
+        confirmLabel="Release air"
+        onConfirm={() => runPillowCommand('open_valve')}
+        onCancel={() => setValveConfirmVisible(false)}
       />
       <ConfirmModal
         visible={disconnectVisible}
@@ -608,7 +734,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   testButton: {
-    backgroundColor: 'rgba(99, 102, 241, 0.9)',
+    backgroundColor: 'rgba(14, 165, 233, 0.9)',
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: 'center',
@@ -616,7 +742,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(165, 180, 252, 0.35)',
+    borderColor: 'rgba(14, 165, 233, 0.35)',
   },
   testButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   card: { padding: 18, marginBottom: 16 },
@@ -657,7 +783,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  connectButton: { backgroundColor: '#6366f1' },
+  connectButton: { backgroundColor: '#0ea5e9' },
   disconnectButton: {
     backgroundColor: 'rgba(239,68,68,0.12)',
     borderWidth: 1,
@@ -709,17 +835,37 @@ const styles = StyleSheet.create({
   stepText: { color: colors.accent, fontSize: 18, fontWeight: '700' },
   stepValue: { color: colors.text, fontSize: 16, fontWeight: '700', minWidth: 48, textAlign: 'center' },
   saveButton: {
-    backgroundColor: 'rgba(99, 102, 241, 0.9)',
+    backgroundColor: 'rgba(14, 165, 233, 0.9)',
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(165, 180, 252, 0.35)',
+    borderColor: 'rgba(14, 165, 233, 0.35)',
   },
   saveButtonDisabled: { opacity: 0.45 },
   saveButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   saveMessage: { color: '#10b981', fontSize: 12, marginBottom: 10, fontWeight: '600' },
   saveError: { color: '#fca5a5' },
+  dangerButton: {
+    backgroundColor: '#ef4444',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 10,
+  },
+  valveButton: {
+    backgroundColor: '#0284c7',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  dangerButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   pinOverlay: {
     flex: 1,
     justifyContent: 'center',
@@ -769,7 +915,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 13,
     alignItems: 'center',
-    backgroundColor: '#6366f1',
+    backgroundColor: '#0ea5e9',
   },
   pinConfirmText: { color: '#ffffff', fontWeight: '800' },
 });

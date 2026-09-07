@@ -47,7 +47,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
         </View>
 
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color="#6366f1" />
+          <ActivityIndicator size="small" color="#0ea5e9" />
           <Text style={styles.loadingText}>{statusText}</Text>
         </View>
       </View>
@@ -87,8 +87,8 @@ const styles = StyleSheet.create({
     height: 148,
     borderRadius: 40,
     borderWidth: 1.5,
-    borderColor: 'rgba(99, 102, 241, 0.28)',
-    backgroundColor: 'rgba(99, 102, 241, 0.04)',
+    borderColor: 'rgba(14, 165, 233, 0.28)',
+    backgroundColor: 'rgba(14, 165, 233, 0.04)',
   },
   splashIcon: {
     width: 112,
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
   },
   titleSuffix: { 
-    color: '#6366f1',
+    color: '#0ea5e9',
   },
   subtitle: { 
     fontSize: 10, 

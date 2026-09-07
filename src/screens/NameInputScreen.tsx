@@ -127,7 +127,7 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
           <View style={styles.card}>
             <View style={styles.iconRing}>
               <View style={styles.iconCircle}>
-                <FontAwesome5 name="user-astronaut" size={32} color="#6366f1" />
+                <FontAwesome5 name="user-astronaut" size={32} color="#0ea5e9" />
               </View>
             </View>
 
@@ -180,7 +180,7 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
               style={styles.smallInput}
               onPress={() => setGoalModalVisible(true)}
             >
-              <Text style={{ color: "#ffffff", fontSize: 15 }}>
+              <Text style={{ color: "#000000", fontSize: 15 }}>
                 Sleep goal:{" "}
                 {sleepGoal === "other"
                   ? otherGoal || "Other"
@@ -301,15 +301,15 @@ const modalStyles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   menu: {
-    backgroundColor: "#171a2a",
+    backgroundColor: "#ffffff",
     borderRadius: 24,
     padding: 18,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(14, 165, 233, 0.2)",
     maxHeight: "70%",
   },
   modalTitle: {
-    color: "#ffffff",
+    color: "#000000",
     fontSize: 18,
     fontWeight: "800",
     marginBottom: 8,
@@ -319,9 +319,9 @@ const modalStyles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#2d2d52",
+    borderBottomColor: "rgba(14, 165, 233, 0.2)",
   },
-  optionText: { color: "#e5e7eb", fontSize: 16, fontWeight: "600" },
+  optionText: { color: "#111111", fontSize: 16, fontWeight: "600" },
   backdrop: { ...StyleSheet.absoluteFillObject },
 });
 
@@ -335,15 +335,15 @@ const styles = StyleSheet.create({
     padding: 32,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: "rgba(14, 165, 233, 0.2)",
   },
   iconRing: {
     width: 90,
     height: 90,
     borderRadius: 45,
     borderWidth: 1,
-    borderColor: "rgba(99, 102, 241, 0.25)",
-    backgroundColor: "rgba(99, 102, 241, 0.05)",
+    borderColor: "rgba(14, 165, 233, 0.25)",
+    backgroundColor: "rgba(14, 165, 233, 0.05)",
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 24,
@@ -354,64 +354,64 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     backgroundColor: colors.surfaceMuted,
     borderWidth: 1,
-    borderColor: "rgba(99, 102, 241, 0.5)",
+    borderColor: "rgba(14, 165, 233, 0.5)",
     justifyContent: "center",
     alignItems: "center",
   },
   textContainer: { alignItems: "center", marginBottom: 22 },
-  title: { fontSize: 28, fontWeight: "800", color: "#ffffff", marginBottom: 8, letterSpacing: 0.8 },
-  subtitle: { fontSize: 14, color: "#cbd5e1", textAlign: "center", lineHeight: 22, maxWidth: 300 },
+  title: { fontSize: 28, fontWeight: "800", color: "#000000", marginBottom: 8, letterSpacing: 0.8 },
+  subtitle: { fontSize: 14, color: "#333333", textAlign: "center", lineHeight: 22, maxWidth: 300 },
   input: {
     width: "100%",
-    backgroundColor: "rgba(255, 255, 255, 0.06)",
+    backgroundColor: "#f0f9ff",
     borderRadius: 18,
     paddingHorizontal: 18,
     paddingVertical: 16,
     fontSize: 16,
     fontWeight: "600",
-    color: "#ffffff",
+    color: "#000000",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.12)",
+    borderColor: "rgba(14, 165, 233, 0.2)",
     marginBottom: 14,
   },
   inputError: { borderColor: "rgba(239, 68, 68, 0.6)" },
-  fieldError: { color: "#fca5a5", fontSize: 12, alignSelf: "flex-start", marginTop: -8, marginBottom: 10 },
+  fieldError: { color: "#b91c1c", fontSize: 12, alignSelf: "flex-start", marginTop: -8, marginBottom: 10 },
   smallInput: {
     width: "100%",
-    backgroundColor: "rgba(255,255,255,0.04)",
+    backgroundColor: "#f0f9ff",
     borderRadius: 16,
     paddingHorizontal: 18,
     paddingVertical: 14,
-    color: "#ffffff",
+    color: "#000000",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.08)",
+    borderColor: "rgba(14, 165, 233, 0.2)",
     marginBottom: 14,
   },
-  fieldLabel: { color: "#9ca3af", fontSize: 12, marginBottom: 8, fontWeight: "600" },
+  fieldLabel: { color: "#333333", fontSize: 12, marginBottom: 8, fontWeight: "600" },
   birthSection: { width: "100%", marginBottom: 14 },
   birthRow: { flexDirection: "row", gap: 8 },
   birthSelect: {
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.05)",
+    backgroundColor: "#f0f9ff",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
+    borderColor: "rgba(14, 165, 233, 0.2)",
     paddingHorizontal: 10,
     paddingVertical: 12,
   },
-  birthSelectHint: { color: "#94a3b8", fontSize: 11, marginBottom: 4 },
-  birthSelectValue: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
-  clearBirth: { color: "#93c5fd", fontSize: 12, fontWeight: "600", marginTop: 10, textAlign: "center" },
+  birthSelectHint: { color: "#333333", fontSize: 11, marginBottom: 4 },
+  birthSelectValue: { color: "#000000", fontSize: 13, fontWeight: "700" },
+  clearBirth: { color: "#0284c7", fontSize: 12, fontWeight: "600", marginTop: 10, textAlign: "center" },
   button: {
     flexDirection: "row",
     width: "100%",
-    backgroundColor: "#6366f1",
+    backgroundColor: "#0ea5e9",
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
   },
-  buttonDisabled: { backgroundColor: "rgba(255, 255, 255, 0.05)" },
+  buttonDisabled: { backgroundColor: "#e0f2fe" },
   buttonText: { fontSize: 15, fontWeight: "700", color: "#ffffff", letterSpacing: 0.5 },
-  buttonTextDisabled: { color: "#6b7280" },
+  buttonTextDisabled: { color: "#333333" },
 });

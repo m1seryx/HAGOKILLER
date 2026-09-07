@@ -54,13 +54,25 @@ export type ActivityId =
   | 'congested'
   | 'back_sleeper'
   | 'caffeine'
-  | 'irregular_schedule';
+  | 'irregular_schedule'
+  | 'smoking'
+  | 'screen_time'
+  | 'dry_air'
+  | 'mouth_breathing'
+  | 'medications'
+  | 'dehydrated';
+
+export type SleepFeeling = 'rested' | 'okay' | 'tired' | 'exhausted';
+export type SleepHoursBucket = 'under_5' | '5_to_6' | '7_to_8' | 'over_8';
+export type MouthBreathingAnswer = 'no' | 'sometimes' | 'yes';
 
 export interface DailyActivityCheckIn {
   date: string; // YYYY-MM-DD
   activities: ActivityId[];
-  /** Free-text note for activities not listed above */
   otherActivityNote?: string | null;
+  sleepFeeling?: SleepFeeling | null;
+  sleepHours?: SleepHoursBucket | null;
+  mouthBreathing?: MouthBreathingAnswer | null;
   updatedAt: number;
 }
 

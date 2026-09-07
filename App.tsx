@@ -12,6 +12,7 @@ import { LoadingScreen } from './src/screens/LoadingScreen';
 import { NameInputScreen } from './src/screens/NameInputScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { LogsScreen } from './src/screens/LogsScreen';
+import { AssessmentScreen } from './src/screens/AssessmentScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { UserContext } from './src/context/UserContext';
@@ -23,12 +24,16 @@ import {
   setupSnoreNotifications,
   notifySnoreDetected,
 } from './src/services/snoreNotifications';
+import { scheduleDailyAdviceNotifications } from './src/services/dailyAdviceNotifications';
 import { colors } from './src/constants/theme';
 import {
   initDatabase,
   saveUserProfile,
   loadUserProfile,
+  loadSleepEvents,
 } from './src/services/userStorage';
+import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from './src/utils/statsCalculator';
+import moment from 'moment';
 
 if (Platform.OS === 'web') {
   enableScreens(false);
@@ -45,6 +50,8 @@ const DashboardTabScreen = () => {
 };
 
 const LogsTabScreen = () => <LogsScreen />;
+
+const AssessmentTabScreen = () => <AssessmentScreen />;
 
 const SettingsTabScreen = () => <SettingsScreen />;
 
@@ -104,6 +111,15 @@ const MainTabs = () => (
       }}
     />
     <Tab.Screen
+      name="AssessmentTab"
+      component={AssessmentTabScreen}
+      options={{
+        tabBarIcon: ({ color, focused }) => (
+          <TabIcon name="stethoscope" color={color} focused={focused} />
+        ),
+      }}
+    />
+    <Tab.Screen
       name="SettingsTab"
       component={SettingsTabScreen}
       options={{
@@ -117,11 +133,29 @@ const MainTabs = () => (
 
 const SnoreAlertHost = () => {
   useEffect(() => {
-    hydrateNotificationPref()
-      .then((enabled) => {
-        if (enabled) return setupSnoreNotifications();
-      })
-      .catch(() => undefined);
+    const boot = async () => {
+      const enabled = await hydrateNotificationPref();
+      if (!enabled) return;
+      await setupSnoreNotifications();
+
+      try {
+        const events = await loadSleepEvents();
+        const today = moment().format('YYYY-MM-DD');
+        const month = moment().format('YYYY-MM');
+        const todayStats = calculateDailyStats(events, today);
+        const thisMonth = calculateMonthlyStats(events, month);
+        const prevMonth = calculateMonthlyStats(
+          events,
+          moment().subtract(1, 'month').format('YYYY-MM'),
+        );
+        const trend = calculateTrend([prevMonth, thisMonth]);
+        await scheduleDailyAdviceNotifications(todayStats.severity, trend);
+      } catch {
+        await scheduleDailyAdviceNotifications('normal', 'stable');
+      }
+    };
+
+    boot().catch(() => undefined);
 
     return bleService.subscribeEvents((event) => {
       notifySnoreDetected(event).catch(() => undefined);

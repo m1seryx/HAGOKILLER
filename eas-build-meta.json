@@ -1,0 +1,48 @@
+﻿{
+  "id": "09f71655-182c-4d68-b05f-8d88e2b70365",
+  "status": "ERRORED",
+  "platform": "ANDROID",
+  "error": {
+    "errorCode": "EAS_BUILD_UNKNOWN_GRADLE_ERROR",
+    "message": "Gradle build failed with unknown error. See logs for the \"Run gradlew\" phase for more information."
+  },
+  "artifacts": {},
+  "fingerprint": {
+    "id": "01a0767f-71b1-717e-944b-4c05d080e9bb",
+    "hash": "ae8b4903d5c30b4f2d23e3eeb538e6ad12ea5523"
+  },
+  "initiatingActor": {
+    "id": "7468bd7e-4dcf-42fa-821d-38e6cd3f18be",
+    "displayName": "azeemabdu01"
+  },
+  "logFiles": [
+    "https://storage.googleapis.com/eas-workflows-production/logs/a50aa0de-3db4-4ba1-9a0f-138e8229858c/09f71655-182c-4d68-b05f-8d88e2b70365/2026-09-06T11%3A34%3A20Z-677995da-c622-450a-afe0-5460d373908b.txt?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=www-production%40exponentjs.iam.gserviceaccount.com%2F20260906%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260906T113904Z&X-Goog-Expires=900&X-Goog-SignedHeaders=host&X-Goog-Signature=5032583ef512e219a7150551337a018d682098fad8ee0ea5daa4426240d508dbcb8300ca824c7b003a3fb1187504e7d128cf3127ebbb644913f48b917fe81b940246d1aa209d6f2c5345ccc8e5247dec2a7611a29bc2e3d6dee779bc6e651e740985f835bfc062f5d52f44b6ce7e61250b17fc49c4171d547953fa86aec15d147cadb0145b9b0be25e09f66eacd16cb687cb18bc66108d3cebb7333c0524e081380959b1c0095e0f0ddd28ac252fd2c5cf3819c005fef0ca8825f8ed22a27e6ac395f218a901b82a1013e9ed2888a83c31cc2cf292082ed44e97ac36a0c4716b8ababf2eb914e1ff13a9f4025170c378df6b850ed772b587b9ef6a4238539197"
+  ],
+  "project": {
+    "id": "a50aa0de-3db4-4ba1-9a0f-138e8229858c",
+    "name": "smart-pillow-app",
+    "slug": "smart-pillow-app",
+    "ownerAccount": {
+      "id": "475125b2-de68-41a5-a5de-7cb1d43b15c4",
+      "name": "azeemabdu01"
+    }
+  },
+  "distribution": "INTERNAL",
+  "buildProfile": "preview",
+  "sdkVersion": "52.0.0",
+  "appVersion": "1.0.0",
+  "appBuildVersion": "1",
+  "gitCommitHash": "376fba396e26b307291ca14409aaec6600b376fb",
+  "gitCommitMessage": "Added Activity Question for the app to have a different assesstment",
+  "priority": "NORMAL",
+  "createdAt": "2026-09-06T11:34:18.761Z",
+  "updatedAt": "2026-09-06T11:39:15.153Z",
+  "completedAt": "2026-09-06T11:39:14.940Z",
+  "expirationDate": "2026-09-20T11:34:18.793Z",
+  "isForIosSimulator": false,
+  "metrics": {
+    "buildWaitTime": 1387,
+    "buildQueueTime": 4678,
+    "buildDuration": 290114
+  }
+}

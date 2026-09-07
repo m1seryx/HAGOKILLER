@@ -20,6 +20,11 @@ export {
   areNotificationsEnabled,
 } from './snoreNotifications';
 export {
+  scheduleDailyAdviceNotifications,
+  cancelDailyAdviceNotifications,
+  DAILY_ADVICE_HOUR,
+} from './dailyAdviceNotifications';
+export {
   initDatabase,
   saveUserProfile,
   loadUserProfile,

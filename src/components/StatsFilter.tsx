@@ -67,7 +67,7 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
             <View style={styles.rangeField}>
               <Text style={styles.rangeLabel}>From</Text>
               <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(from).toDate()); setPickerVisible('from'); }}>
-                <FontAwesome5 name="calendar-alt" size={12} color="#6366f1" style={{ marginRight: 6 }} />
+                <FontAwesome5 name="calendar-alt" size={12} color="#0ea5e9" style={{ marginRight: 6 }} />
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{from}</Text>
               </TouchableOpacity>
             </View>
@@ -75,7 +75,7 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
             <View style={styles.rangeField}>
               <Text style={styles.rangeLabel}>To</Text>
               <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(to).toDate()); setPickerVisible('to'); }}>
-                <FontAwesome5 name="calendar-alt" size={12} color="#6366f1" style={{ marginRight: 6 }} />
+                <FontAwesome5 name="calendar-alt" size={12} color="#0ea5e9" style={{ marginRight: 6 }} />
                 <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{to}</Text>
               </TouchableOpacity>
             </View>
@@ -173,8 +173,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   filterButtonActive: {
-    backgroundColor: '#6366f1',
-    shadowColor: '#6366f1',
+    backgroundColor: '#0ea5e9',
+    shadowColor: '#0ea5e9',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   },
   applyButton: {
     flexDirection: 'row',
-    backgroundColor: '#6366f1',
+    backgroundColor: '#0ea5e9',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   smallButtonText: { 
-    color: '#6366f1', 
+    color: '#0ea5e9', 
     fontSize: 16, 
     fontWeight: '700',
     paddingHorizontal: 12,
@@ -304,10 +304,10 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   dayCellText: { 
-    color: '#e5e7eb',
+    color: '#111111',
     fontSize: 13,
   },
   dayCellSelected: { 
-    backgroundColor: '#6366f1',
+    backgroundColor: '#0ea5e9',
   },
 });

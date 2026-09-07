@@ -22,7 +22,8 @@
  *   BLUE  = snoring
  *
  * ML decision is 50/50: whichever class scores higher wins.
- * Phone settings (BLE): consecutive snores, pump seconds, mic shift.
+ * Phone settings (BLE): snore count, window seconds, pump seconds, mic shift.
+ * Phone commands (BLE): manual stop pump, open solenoid valve.
  * Sound gate is tuned for near-pillow audio (not across the room).
  */
 
@@ -63,6 +64,11 @@
 #define PUMP_SEC_MIN 5
 #define PUMP_SEC_MAX 120
 #define PUMP_SEC_DEFAULT 12
+#define SNORE_WINDOW_DEFAULT 15
+#define SNORE_WINDOW_MIN 5
+#define SNORE_WINDOW_MAX 60
+#define SNORE_TIMES_MAX 10
+#define VALVE_SEC_DEFAULT 8
 #define SEND_COOLDOWN_MS 2000
 #define ESPNOW_CHANNEL 1
 #define HEARTBEAT_MS 3000
@@ -91,10 +97,13 @@ float noiseRms = 120.0f;
 int noisePeak = 300;
 uint8_t micShift = MIC_SHIFT_DEFAULT;
 uint8_t snoreThreshold = 3;
+uint8_t snoreWindowSec = SNORE_WINDOW_DEFAULT;
 uint8_t pumpSeconds = PUMP_SEC_DEFAULT;
 uint8_t snoreStreak = 0;
 uint8_t loudStreak = 0;
 bool pendingRecalibrate = false;
+unsigned long snoreTimes[SNORE_TIMES_MAX];
+uint8_t snoreTimeCount = 0;
 
 BLECharacteristic *authChar = nullptr;
 BLECharacteristic *eventChar = nullptr;
@@ -116,14 +125,27 @@ typedef struct __attribute__((packed)) {
   uint8_t  snoreThreshold;
   uint8_t  pumpSeconds;
   uint8_t  micShift;
-  uint8_t  reserved;
+  uint8_t  snoreWindowSec;
 } SettingsMsg;
+
+typedef struct __attribute__((packed)) {
+  uint32_t magic;
+  uint8_t  opcode;
+  uint8_t  argSeconds;
+  uint8_t  reserved0;
+  uint8_t  reserved1;
+} CommandMsg;
 
 static const uint32_t MSG_MAGIC = 0x48474F4B;
 static const uint32_t SETTINGS_MAGIC = 0x48475354;
+static const uint32_t COMMAND_MAGIC = 0x4847434D;
 static const uint8_t EVENT_SOUND = 1;
 static const uint8_t EVENT_HEARTBEAT = 2;
+static const uint8_t EVENT_STOP = 3;
+static const uint8_t EVENT_OPEN_VALVE = 4;
 static const uint8_t FLAG_INTERVENTION = 0x01;
+static const uint8_t CMD_STOP = 1;
+static const uint8_t CMD_OPEN_VALVE = 2;
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 void setRgb(uint8_t r, uint8_t g, uint8_t b)
@@ -207,15 +229,99 @@ uint8_t clampU8(uint8_t v, uint8_t lo, uint8_t hi)
     return v;
 }
 
+void clearSnoreWindow()
+{
+    snoreTimeCount = 0;
+    snoreStreak = 0;
+}
+
+uint8_t refreshSnoreWindow(unsigned long now)
+{
+    unsigned long windowMs = (unsigned long)snoreWindowSec * 1000UL;
+    uint8_t kept = 0;
+    for (uint8_t i = 0; i < snoreTimeCount; i++) {
+        if ((long)(now - snoreTimes[i]) <= (long)windowMs) {
+            snoreTimes[kept++] = snoreTimes[i];
+        }
+    }
+    snoreTimeCount = kept;
+    snoreStreak = snoreTimeCount;
+    return snoreStreak;
+}
+
+uint8_t noteSnoreEvent(unsigned long now)
+{
+    refreshSnoreWindow(now);
+    if (snoreTimeCount < SNORE_TIMES_MAX) {
+        snoreTimes[snoreTimeCount++] = now;
+    } else {
+        for (uint8_t i = 1; i < SNORE_TIMES_MAX; i++) snoreTimes[i - 1] = snoreTimes[i];
+        snoreTimes[SNORE_TIMES_MAX - 1] = now;
+    }
+    snoreStreak = snoreTimeCount;
+    return snoreStreak;
+}
+
 void printDeviceSettings()
 {
     Serial.print("Settings: snores=");
     Serial.print(snoreThreshold);
-    Serial.print("  pump=");
+    Serial.print(" in ");
+    Serial.print(snoreWindowSec);
+    Serial.print("s  pump=");
     Serial.print(pumpSeconds);
     Serial.print(" sec  micShift=");
     Serial.println(micShift);
     Serial.flush();
+}
+
+void sendPumpControlEvent(uint8_t eventCode, uint8_t seconds)
+{
+    PumpMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.magic = MSG_MAGIC;
+    msg.event = eventCode;
+    msg.pumpSeconds = seconds;
+    msg.streak = snoreStreak;
+    esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
+}
+
+void applyCommandPacket(const uint8_t *data, size_t len)
+{
+    if (len < sizeof(CommandMsg)) {
+        Serial.println("BLE: command packet too short");
+        return;
+    }
+
+    CommandMsg msg;
+    memcpy(&msg, data, sizeof(msg));
+    if (msg.magic != COMMAND_MAGIC) {
+        Serial.println("BLE: bad command magic");
+        return;
+    }
+
+    if (msg.opcode == CMD_STOP) {
+        clearSnoreWindow();
+        pumpLockUntilMs = 0;
+        sendPumpControlEvent(EVENT_STOP, 0);
+        Serial.println("BLE: manual STOP -> pump ESP");
+        return;
+    }
+
+    if (msg.opcode == CMD_OPEN_VALVE) {
+        uint8_t secs = msg.argSeconds == 0 ? VALVE_SEC_DEFAULT : clampU8(msg.argSeconds, 1, 30);
+        // Stop inflation first, then open valve.
+        sendPumpControlEvent(EVENT_STOP, 0);
+        delay(30);
+        sendPumpControlEvent(EVENT_OPEN_VALVE, secs);
+        Serial.print("BLE: OPEN VALVE -> pump ESP  ");
+        Serial.print(secs);
+        Serial.println(" sec");
+        return;
+    }
+
+    Serial.print("BLE: unknown command opcode ");
+    Serial.println(msg.opcode);
 }
 
 void applySettingsPacket(const uint8_t *data, size_t len)
@@ -237,7 +343,12 @@ void applySettingsPacket(const uint8_t *data, size_t len)
     snoreThreshold = clampU8(msg.snoreThreshold, 1, 10);
     pumpSeconds = clampU8(msg.pumpSeconds, PUMP_SEC_MIN, PUMP_SEC_MAX);
     micShift = nextShift;
-    snoreStreak = 0;
+    snoreWindowSec = clampU8(
+        msg.snoreWindowSec == 0 ? SNORE_WINDOW_DEFAULT : msg.snoreWindowSec,
+        SNORE_WINDOW_MIN,
+        SNORE_WINDOW_MAX
+    );
+    clearSnoreWindow();
     pumpLockUntilMs = 0;
     if (shiftChanged && iotStarted && i2sReady) pendingRecalibrate = true;
 
@@ -248,7 +359,25 @@ void applySettingsPacket(const uint8_t *data, size_t len)
 class SettingsCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
         String raw = pCharacteristic->getValue();
-        applySettingsPacket((const uint8_t *)raw.c_str(), raw.length());
+        const uint8_t *bytes = (const uint8_t *)raw.c_str();
+        size_t len = raw.length();
+        if (len < 4) {
+            Serial.println("BLE: write too short");
+            return;
+        }
+
+        uint32_t magic = (uint32_t)bytes[0]
+            | ((uint32_t)bytes[1] << 8)
+            | ((uint32_t)bytes[2] << 16)
+            | ((uint32_t)bytes[3] << 24);
+
+        if (magic == COMMAND_MAGIC) {
+            applyCommandPacket(bytes, len);
+        } else if (magic == SETTINGS_MAGIC) {
+            applySettingsPacket(bytes, len);
+        } else {
+            Serial.println("BLE: unknown write magic");
+        }
     }
 };
 
@@ -670,28 +799,34 @@ void printResult(ei_impulse_result_t &result, float rms, int peak)
 
     if (isSnoringWinner(snoringScore, nonSnoringScore)) {
         ledBlueSnoring();
-        snoreStreak++;
-        bool intervene = snoreStreak >= snoreThreshold;
+        unsigned long now = millis();
+        uint8_t streak = noteSnoreEvent(now);
+        bool intervene = streak >= snoreThreshold;
         Serial.print(">>> SNORING DETECTED  streak=");
-        Serial.print(snoreStreak);
+        Serial.print(streak);
         Serial.print("/");
         Serial.print(snoreThreshold);
-        Serial.println(" <<<");
+        Serial.print(" in ");
+        Serial.print(snoreWindowSec);
+        Serial.println("s <<<");
         Serial.println(">>> RGB LED = BLUE <<<");
         uint8_t level = snoreLevelFromScore(snoringScore, rms);
         uint16_t rmsU16 = (uint16_t)constrain((int)rms, 0, 65535);
-        notifyPhone(level, rmsU16, snoreStreak, intervene);
+        notifyPhone(level, rmsU16, streak, intervene);
         if (intervene) {
-            notifyPump(level, rmsU16, snoreStreak);
+            notifyPump(level, rmsU16, streak);
             Serial.print(">>> PUMP ");
             Serial.print(pumpSeconds);
             Serial.println(" sec <<<");
-            snoreStreak = 0;
+            clearSnoreWindow();
         }
     } else {
-        snoreStreak = 0;
+        // Keep rolling window; only time expiry removes older snores.
+        refreshSnoreWindow(millis());
         ledRedNonSnoring();
-        Serial.println(">>> NON-SNORING <<<");
+        Serial.print(">>> NON-SNORING  window streak=");
+        Serial.print(snoreStreak);
+        Serial.println(" <<<");
         Serial.println(">>> RGB LED = RED <<<");
     }
     Serial.println();
@@ -806,7 +941,7 @@ void loop()
 
     if (!soundPresent) {
         loudStreak = 0;
-        snoreStreak = 0;
+        refreshSnoreWindow(millis());
         ledWhiteNoSound();
         delay(50);
         return;

@@ -95,6 +95,9 @@ async function ensureDeviceSettingsColumns(db: SQLite.SQLiteDatabase): Promise<v
   if (!names.has('mic_shift')) {
     await db.execAsync('ALTER TABLE device_settings ADD COLUMN mic_shift INTEGER NOT NULL DEFAULT 14');
   }
+  if (!names.has('snore_window')) {
+    await db.execAsync('ALTER TABLE device_settings ADD COLUMN snore_window INTEGER NOT NULL DEFAULT 15');
+  }
 }
 
 async function migratePumpDurationToSeconds(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -327,13 +330,14 @@ export async function dbSaveDeviceSettings(settings: StoredDeviceSettings): Prom
   const db = await initDatabase();
   const next = normalizeDeviceSettings(settings);
   await db.runAsync(
-    `INSERT INTO device_settings (id, snore_threshold, pump_duration, mic_shift)
-     VALUES (1, ?, ?, ?)
+    `INSERT INTO device_settings (id, snore_threshold, pump_duration, mic_shift, snore_window)
+     VALUES (1, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        snore_threshold = excluded.snore_threshold,
        pump_duration = excluded.pump_duration,
-       mic_shift = excluded.mic_shift`,
-    [next.snoreThreshold, next.pumpDuration, next.micShift],
+       mic_shift = excluded.mic_shift,
+       snore_window = excluded.snore_window`,
+    [next.snoreThreshold, next.pumpDuration, next.micShift, next.snoreWindowSec],
   );
 }
 
@@ -343,12 +347,14 @@ export async function dbLoadDeviceSettings(): Promise<StoredDeviceSettings | nul
     snore_threshold: number;
     pump_duration: number;
     mic_shift: number | null;
-  }>('SELECT snore_threshold, pump_duration, mic_shift FROM device_settings WHERE id = 1');
+    snore_window: number | null;
+  }>('SELECT snore_threshold, pump_duration, mic_shift, snore_window FROM device_settings WHERE id = 1');
   if (!row) return null;
   return normalizeDeviceSettings({
     snoreThreshold: row.snore_threshold,
     pumpDuration: row.pump_duration,
     micShift: row.mic_shift ?? 14,
+    snoreWindowSec: row.snore_window ?? 15,
   });
 }
 

@@ -222,6 +222,7 @@ export class MockBLEService {
   private liveTimeout: ReturnType<typeof setTimeout> | null = null;
   private seedIfEmpty: boolean;
   private snoreStreak = 0;
+  private snoreEventTimes: number[] = [];
   private settings: DeviceSettings = { ...DEFAULT_DEVICE_SETTINGS };
 
   constructor(options?: { seedIfEmpty?: boolean }) {
@@ -263,13 +264,20 @@ export class MockBLEService {
     const roll = Date.now() % 10;
     const severity: SleepEvent['severity'] = roll < 5 ? 'low' : roll < 8 ? 'medium' : 'high';
     const duration = 18 + (Date.now() % 42);
-    this.snoreStreak += 1;
+    const now = Date.now();
+    const windowMs = this.settings.snoreWindowSec * 1000;
+    this.snoreEventTimes = this.snoreEventTimes.filter((t) => now - t <= windowMs);
+    this.snoreEventTimes.push(now);
+    this.snoreStreak = this.snoreEventTimes.length;
     const triggered = this.snoreStreak >= this.settings.snoreThreshold;
-    if (triggered) this.snoreStreak = 0;
-    const streakAtEvent = triggered ? this.settings.snoreThreshold : this.snoreStreak;
+    const streakAtEvent = this.snoreStreak;
+    if (triggered) {
+      this.snoreEventTimes = [];
+      this.snoreStreak = 0;
+    }
     const event: SleepEvent = {
       id: `live-${Date.now()}`,
-      timestamp: Date.now(),
+      timestamp: now,
       duration,
       severity,
       interventionTriggered: triggered,
@@ -469,12 +477,31 @@ export class MockBLEService {
   async saveDeviceSettings(settings: DeviceSettings): Promise<DeviceSettings> {
     this.settings = validateDeviceSettings(settings);
     this.snoreStreak = 0;
+    this.snoreEventTimes = [];
     await saveDeviceSettings(this.settings);
     return { ...this.settings };
   }
 
   getDeviceSettings(): DeviceSettings {
     return { ...this.settings };
+  }
+
+  /**
+   * Prototype safety commands (mock: resets local streak / logs only).
+   * Real firmware must implement the matching BLE command packet.
+   */
+  async sendDeviceCommand(
+    command: 'emergency_stop' | 'open_valve',
+    _argSeconds = 0,
+  ): Promise<void> {
+    if (!this.connected) {
+      throw new Error('Connect the pillow before using emergency controls.');
+    }
+    this.snoreStreak = 0;
+    this.snoreEventTimes = [];
+    if (__DEV__) {
+      console.log(`[mock BLE] command ${command}`);
+    }
   }
 
   getIsConnected(): boolean {

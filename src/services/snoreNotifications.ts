@@ -40,7 +40,7 @@ export async function setupSnoreNotifications(): Promise<boolean> {
       name: 'Snore alerts',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#7c8cff',
+      lightColor: '#0ea5e9',
       sound: 'default',
     });
   }
@@ -93,7 +93,7 @@ export async function notifySnoreDetected(event: SleepEvent): Promise<void> {
 
   const severity = event.severity.charAt(0).toUpperCase() + event.severity.slice(1);
   const streakNote =
-    event.snoreStreak != null ? ` (${event.snoreStreak}/${threshold} consecutive snores)` : '';
+    event.snoreStreak != null ? ` (${event.snoreStreak}/${threshold} snores in window)` : '';
 
   const body = event.interventionTriggered
     ? `${severity} snoring threshold reached${streakNote} — pillow inflating for ${event.interventionDuration}s.`
@@ -114,7 +114,7 @@ export async function sendTestNotification(): Promise<void> {
 
   await presentNotification(
     'Test notification',
-    'Snore alerts are working. You will only be notified when your threshold is hit or the pump inflates.',
+    'Alerts work. You get snore-threshold alerts and a daily sleep tip at 8:00 AM even if the app is closed.',
     { test: 'true' },
   );
 }

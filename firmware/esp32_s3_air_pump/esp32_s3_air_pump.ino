@@ -1,50 +1,48 @@
 /*
- * HAGOKILLER - ESP32-S3 air pump receiver
+ * HAGOKILLER - ESP32-S3 air pump + solenoid receiver
  * Board: ESP32S3 Dev Module
  * Serial: 115200
  *
- * Your board has R_EN, L_EN, RPWM, LPWM, R_IS, L_IS — that is a
- * BTS7960 motor driver (NOT a simple HW-039 relay).
- *
- * ========== BTS7960 → ESP32-S3 (right channel for air pump) ==========
+ * BTS7960 wiring (pump on M+, solenoid on M-):
  *   VCC   -> 3.3V
- *   GND   -> GND
- *   R_EN  -> 3.3V        (always enable right channel)
- *   RPWM  -> GPIO 18     (HIGH = pump on, LOW = pump off)
- *   LPWM  -> GND
- *   L_EN  -> GND         (disable left channel)
- *   R_IS  -> (not connected)
- *   L_IS  -> (not connected)
+ *   GND   -> ESP32 GND (= B-)
+ *   R_EN  -> 3.3V
+ *   L_EN  -> 3.3V
+ *   RPWM  -> GPIO 18   (air pump -> M+)
+ *   LPWM  -> GPIO 17   (solenoid -> M-)
+ *   B+    -> jack red (supply +)
+ *   B-    -> common GND (jack + pump + solenoid)
+ *   M+    -> air pump red (+)
+ *   M-    -> solenoid red (+)
  *
- *   Pump motor wires -> M+ and M-  (or B+/B- / R+/R- on your board)
- *   VM / motor V+    -> battery+  (pump voltage, e.g. 5–12V)
- *   motor GND        -> battery- and ESP32 GND (common ground)
+ * Never drive pump and solenoid HIGH at the same time.
  *
- * Mic sends ESP-NOW heartbeat every ~3s while the app is connected.
- * Serial prints "connected to espmic" when heartbeats arrive.
+ * ESP-NOW events from mic:
+ *   1 = sound / intervention (pump)
+ *   2 = heartbeat
+ *   3 = manual stop pump
+ *   4 = open solenoid valve
  */
 
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <esp_now.h>
 #include <string.h>
+#include <ctype.h>
 #include "esp32-hal-rgb-led.h"
 #include "driver/gpio.h"
 
-#define PUMP_DRIVER_BTS7960    1
-#define PUMP_DRIVER_HW039_RELAY 2
-#define PUMP_DRIVER            PUMP_DRIVER_BTS7960
-
-#define PUMP_PWM_PIN  18
+#define RPWM_PIN 18
+#define LPWM_PIN 17
 #define ESPNOW_CHANNEL 1
 #define MIC_TIMEOUT_MS 8000
 
-#if PUMP_DRIVER == PUMP_DRIVER_HW039_RELAY
-  #define HW039_ACTIVE_LOW true
-  #define HW039_PUMP_ON_NO true
-#endif
-
-#define DRIVER_SELF_TEST false
+#define PUMP_SEC_MIN 5
+#define PUMP_SEC_MAX 120
+#define PUMP_SEC_DEFAULT 12
+#define VALVE_SEC_DEFAULT 8
+#define VALVE_SEC_MIN 1
+#define VALVE_SEC_MAX 30
 
 #if defined(RGB_BUILTIN)
   #define RGB_LED_PIN RGB_BUILTIN
@@ -66,67 +64,78 @@ typedef struct __attribute__((packed)) {
 static const uint32_t MSG_MAGIC = 0x48474F4B;
 static const uint8_t EVENT_SOUND = 1;
 static const uint8_t EVENT_HEARTBEAT = 2;
+static const uint8_t EVENT_STOP = 3;
+static const uint8_t EVENT_OPEN_VALVE = 4;
 static const uint8_t FLAG_INTERVENTION = 0x01;
 
 volatile bool gotTrigger = false;
+volatile bool gotStop = false;
+volatile bool gotValve = false;
 volatile bool micHeard = false;
 volatile uint8_t lastLevel = 0;
 volatile uint16_t lastRms = 0;
-#define PUMP_SEC_MIN 5
-#define PUMP_SEC_MAX 120
-#define PUMP_SEC_DEFAULT 12
-
 volatile uint8_t lastSeconds = PUMP_SEC_DEFAULT;
 volatile uint8_t lastStreak = 0;
+volatile uint8_t lastValveSeconds = VALVE_SEC_DEFAULT;
+
 unsigned long lastWaitPrintMs = 0;
 unsigned long lastPumpPrintMs = 0;
 unsigned long lastMicHeardMs = 0;
 unsigned long pumpUntilMs = 0;
+unsigned long valveUntilMs = 0;
 bool pumping = false;
+bool valveOpen = false;
 bool printedConnected = false;
 
 void setRgb(uint8_t r, uint8_t g, uint8_t b) {
   neopixelWrite(RGB_LED_PIN, r, g, b);
 }
 
-void writePumpPin(int level) {
-  pinMode(PUMP_PWM_PIN, OUTPUT);
-  digitalWrite(PUMP_PWM_PIN, level);
+void bothOutputsOff() {
+  digitalWrite(RPWM_PIN, LOW);
+  digitalWrite(LPWM_PIN, LOW);
 }
 
 void pumpOn() {
-#if PUMP_DRIVER == PUMP_DRIVER_BTS7960
-  writePumpPin(HIGH);
-#elif PUMP_DRIVER == PUMP_DRIVER_HW039_RELAY
-  int level = HW039_ACTIVE_LOW
-    ? (HW039_PUMP_ON_NO ? LOW : HIGH)
-    : (HW039_PUMP_ON_NO ? HIGH : LOW);
-  writePumpPin(level);
-#endif
+  digitalWrite(LPWM_PIN, LOW);  // never both
+  digitalWrite(RPWM_PIN, HIGH);
 }
 
-void pumpOff() {
-#if PUMP_DRIVER == PUMP_DRIVER_BTS7960
-  writePumpPin(LOW);
-#elif PUMP_DRIVER == PUMP_DRIVER_HW039_RELAY
-  int level = HW039_ACTIVE_LOW
-    ? (HW039_PUMP_ON_NO ? HIGH : LOW)
-    : (HW039_PUMP_ON_NO ? LOW : HIGH);
-  writePumpPin(level);
-#endif
+void pumpOffOnly() {
+  digitalWrite(RPWM_PIN, LOW);
 }
 
-void initPumpDriverSafe() {
-  pumpOff();
+void valveOn() {
+  digitalWrite(RPWM_PIN, LOW);  // never both
+  digitalWrite(LPWM_PIN, HIGH);
 }
 
-__attribute__((constructor)) void bootPumpOffEarly() {
-  initPumpDriverSafe();
+void valveOffOnly() {
+  digitalWrite(LPWM_PIN, LOW);
 }
 
-uint8_t clampSeconds(uint8_t seconds) {
+void initDriverSafe() {
+  pinMode(RPWM_PIN, OUTPUT);
+  pinMode(LPWM_PIN, OUTPUT);
+  bothOutputsOff();
+}
+
+__attribute__((constructor)) void bootOutputsOffEarly() {
+  pinMode(RPWM_PIN, OUTPUT);
+  pinMode(LPWM_PIN, OUTPUT);
+  bothOutputsOff();
+}
+
+uint8_t clampPumpSeconds(uint8_t seconds) {
   if (seconds < PUMP_SEC_MIN) return PUMP_SEC_DEFAULT;
   if (seconds > PUMP_SEC_MAX) return PUMP_SEC_MAX;
+  return seconds;
+}
+
+uint8_t clampValveSeconds(uint8_t seconds) {
+  if (seconds == 0) return VALVE_SEC_DEFAULT;
+  if (seconds < VALVE_SEC_MIN) return VALVE_SEC_MIN;
+  if (seconds > VALVE_SEC_MAX) return VALVE_SEC_MAX;
   return seconds;
 }
 
@@ -140,39 +149,59 @@ void markMicHeard() {
 }
 
 void printDriverConfig() {
-#if PUMP_DRIVER == PUMP_DRIVER_BTS7960
-  Serial.println("Driver: BTS7960 motor driver (R channel)");
+  Serial.println("Driver: BTS7960 (pump M+ / solenoid M-)");
   Serial.println("  VCC  -> 3.3V");
-  Serial.println("  GND  -> GND");
-  Serial.println("  R_EN -> 3.3V  (jumper wire, not GPIO)");
+  Serial.println("  GND  -> GND (= B-)");
+  Serial.println("  R_EN / L_EN -> 3.3V");
   Serial.print("  RPWM -> GPIO ");
-  Serial.println(PUMP_PWM_PIN);
-  Serial.println("  LPWM -> GND");
-  Serial.println("  L_EN -> GND");
-  Serial.println("  R_IS / L_IS -> not connected");
-  Serial.println("  Pump -> M+ / M-   VM -> battery+");
-#elif PUMP_DRIVER == PUMP_DRIVER_HW039_RELAY
-  Serial.println("Driver: HW-039 relay");
-  Serial.print("  IN -> GPIO ");
-  Serial.println(PUMP_PWM_PIN);
-  Serial.println("  VCC -> 3.3V, pump on COM+NO");
-#endif
+  Serial.print(RPWM_PIN);
+  Serial.println("  (air pump)");
+  Serial.print("  LPWM -> GPIO ");
+  Serial.print(LPWM_PIN);
+  Serial.println("  (solenoid)");
+  Serial.println("  B+ = jack red | B- = common GND");
+  Serial.println("  M+ = pump red | M- = solenoid red");
   Serial.println();
-  Serial.println("Waits for mic ESP-NOW heartbeat / pump trigger.");
+  Serial.println("Waits for mic ESP-NOW heartbeat / pump / valve commands.");
   Serial.println();
 }
 
-void driverSelfTest() {
-  Serial.println("Pump self-test: OFF 2s -> ON 1s -> OFF");
-  pumpOff();
-  delay(2000);
-  pumpOn();
-  delay(1000);
-  pumpOff();
-  Serial.println();
+void stopValve() {
+  if (!valveOpen) {
+    valveOffOnly();
+    return;
+  }
+  valveOpen = false;
+  valveOffOnly();
+  setRgb(0, 40, 0);
+  Serial.println("solenoid closed");
+}
+
+void stopPumping() {
+  if (!pumping) {
+    pumpOffOnly();
+    return;
+  }
+  pumping = false;
+  pumpOffOnly();
+  setRgb(0, 40, 0);
+  Serial.println("pump done");
+}
+
+void forceStopAll(const char *reason) {
+  gotTrigger = false;
+  pumping = false;
+  valveOpen = false;
+  bothOutputsOff();
+  setRgb(40, 0, 0);
+  Serial.print("STOP: ");
+  Serial.println(reason);
+  delay(80);
+  setRgb(0, 40, 0);
 }
 
 void startPumping(unsigned long now) {
+  if (valveOpen) stopValve();
   unsigned long durationMs = (unsigned long)lastSeconds * 1000UL;
   pumpUntilMs = now + durationMs;
   pumping = true;
@@ -189,21 +218,25 @@ void startPumping(unsigned long now) {
   Serial.println(lastRms);
 }
 
-void stopPumping() {
-  pumping = false;
-  pumpOff();
-  setRgb(0, 40, 0);
-  Serial.println("pump done");
+void startValve(unsigned long now) {
+  if (pumping) stopPumping();
+  uint8_t secs = clampValveSeconds(lastValveSeconds);
+  valveUntilMs = now + (unsigned long)secs * 1000UL;
+  valveOpen = true;
+  valveOn();
+  setRgb(255, 120, 0);
+  Serial.print("solenoid OPEN...  ");
+  Serial.print(secs);
+  Serial.println(" sec");
 }
 
 void printSerialHelp() {
   Serial.println();
-  Serial.println("Serial test commands (type then Enter):");
-  Serial.println("  t     = test pump for 5 seconds");
-  Serial.println("  on    = same as t");
-  Serial.println("  off   = stop pump now");
-  Serial.println("  s     = stop pump now");
-  Serial.println("  help  = show this list");
+  Serial.println("Serial commands:");
+  Serial.println("  p / pump   = pump ON 5s");
+  Serial.println("  v / valve  = solenoid OPEN 5s");
+  Serial.println("  o / off / s / stop = stop pump + close valve");
+  Serial.println("  help       = this list");
   Serial.println();
 }
 
@@ -217,25 +250,19 @@ void handleSerialCommands() {
 
   unsigned long now = millis();
 
-  if (line == "t" || line == "test" || line == "on" || line == "1") {
+  if (line == "p" || line == "pump" || line == "t" || line == "test" || line == "on" || line == "1") {
     lastSeconds = 5;
     lastStreak = 0;
     lastLevel = 0;
     lastRms = 0;
-    if (pumping) {
-      Serial.println("restarting manual test (5 sec)...");
-    } else {
-      Serial.println("manual test: pump ON for 5 sec");
-    }
+    Serial.println("manual test: pump ON for 5 sec");
     startPumping(now);
-  } else if (line == "off" || line == "0" || line == "s" || line == "stop") {
-    if (pumping) {
-      stopPumping();
-      Serial.println("manual stop");
-    } else {
-      pumpOff();
-      Serial.println("pump already off");
-    }
+  } else if (line == "v" || line == "valve" || line == "solenoid") {
+    lastValveSeconds = 5;
+    Serial.println("manual test: solenoid OPEN for 5 sec");
+    startValve(now);
+  } else if (line == "off" || line == "0" || line == "s" || line == "stop" || line == "o") {
+    forceStopAll("manual serial stop");
   } else if (line == "help" || line == "h" || line == "?") {
     printSerialHelp();
   } else {
@@ -258,9 +285,21 @@ void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
 
   if (msg.magic != MSG_MAGIC) return;
 
-  // Heartbeat from mic — link is alive, do not run the pump.
   if (msg.event == EVENT_HEARTBEAT) {
     markMicHeard();
+    return;
+  }
+
+  if (msg.event == EVENT_STOP) {
+    markMicHeard();
+    gotStop = true;
+    return;
+  }
+
+  if (msg.event == EVENT_OPEN_VALVE) {
+    markMicHeard();
+    lastValveSeconds = clampValveSeconds(msg.pumpSeconds);
+    gotValve = true;
     return;
   }
 
@@ -277,28 +316,24 @@ void onDataRecv(const uint8_t *mac, const uint8_t *data, int len) {
   lastLevel = msg.level;
   lastRms = msg.rms;
   lastStreak = msg.streak;
-  lastSeconds = clampSeconds(msg.pumpSeconds == 0 ? PUMP_SEC_DEFAULT : msg.pumpSeconds);
+  lastSeconds = clampPumpSeconds(msg.pumpSeconds == 0 ? PUMP_SEC_DEFAULT : msg.pumpSeconds);
   gotTrigger = true;
 }
 
 void setup() {
-  initPumpDriverSafe();
+  initDriverSafe();
 
   Serial.begin(115200);
-  delay(500);
+  delay(800);
 
-  pumpOff();
+  bothOutputsOff();
   setRgb(0, 0, 40);
 
   Serial.println();
   Serial.println("======================================");
-  Serial.println(" HAGOKILLER AIR PUMP");
+  Serial.println(" HAGOKILLER AIR PUMP + SOLENOID");
   Serial.println("======================================");
   printDriverConfig();
-
-#if DRIVER_SELF_TEST
-  driverSelfTest();
-#endif
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
@@ -339,12 +374,30 @@ void loop() {
     Serial.println("mic link lost - waiting for mic...");
   }
 
+  if (gotStop) {
+    gotStop = false;
+    gotTrigger = false;
+    gotValve = false;
+    forceStopAll("app / mic manual stop");
+  }
+
+  if (gotValve) {
+    gotValve = false;
+    startValve(now);
+  }
+
   if (gotTrigger) {
     gotTrigger = false;
     if (pumping) {
       Serial.println("pump busy - extra ESP-NOW packet ignored");
     } else {
       startPumping(now);
+    }
+  }
+
+  if (valveOpen) {
+    if ((long)(now - valveUntilMs) >= 0) {
+      stopValve();
     }
   }
 
@@ -358,7 +411,7 @@ void loop() {
       Serial.print(leftSec);
       Serial.println("s left");
     }
-  } else if (now - lastWaitPrintMs >= 3000) {
+  } else if (!valveOpen && now - lastWaitPrintMs >= 3000) {
     lastWaitPrintMs = now;
     if (micHeard) {
       Serial.println("connected to espmic");

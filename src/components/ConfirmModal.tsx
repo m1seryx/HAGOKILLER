@@ -76,13 +76,13 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   title: {
-    color: '#ffffff',
+    color: '#000000',
     fontSize: 18,
     fontWeight: '800',
     marginBottom: 8,
   },
   message: {
-    color: '#cbd5e1',
+    color: '#333333',
     fontSize: 14,
     lineHeight: 21,
     marginBottom: 20,
@@ -98,23 +98,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cancelButton: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#e0f2fe',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderColor: 'rgba(14, 165, 233, 0.2)',
   },
   confirmButton: {
-    backgroundColor: '#6366f1',
+    backgroundColor: '#0ea5e9',
   },
   destructiveButton: {
     backgroundColor: '#ef4444',
   },
   cancelText: {
-    color: '#e5e7eb',
+    color: '#111111',
     fontWeight: '700',
     fontSize: 14,
   },
   confirmText: {
-    color: '#ffffff',
+    color: '#000000',
     fontWeight: '800',
     fontSize: 14,
   },

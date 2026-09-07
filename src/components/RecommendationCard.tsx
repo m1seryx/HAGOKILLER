@@ -42,7 +42,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
           <Text style={styles.activityContext}>{data.activityContext}</Text>
         ) : null}
         <Text style={styles.mainText}>{data.recommendation}</Text>
-        <Text style={[styles.mainText, { marginTop: 8, fontStyle: 'italic', color: '#9ca3af', fontSize: 11 }]}>
+        <Text style={[styles.mainText, { marginTop: 8, fontStyle: 'italic', color: '#333333', fontSize: 11 }]}>
           If symptoms persist, consult your doctor.
         </Text>
       </View>
@@ -54,7 +54,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
           {data.actionItems.map((item, index) => (
             <View key={index} style={styles.actionItem}>
               <View style={styles.checkWrapper}>
-                <FontAwesome5 name="check" size={9} color="#6366f1" />
+                <FontAwesome5 name="check" size={9} color="#0ea5e9" />
               </View>
               <Text style={styles.actionText}>{item}</Text>
             </View>
@@ -81,7 +81,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
       {/* Sleep Tech Tip Footer */}
       <View style={styles.footer}>
         <View style={styles.footerRow}>
-          <FontAwesome5 name="info-circle" size={12} color="#6366f1" style={styles.footerIcon} />
+          <FontAwesome5 name="info-circle" size={12} color="#0ea5e9" style={styles.footerIcon} />
           <Text style={styles.footerText}>
             Keep your IoT Smart Pillow paired over BLE to collect ongoing sleep patterns and update daily scores.
           </Text>
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: 'rgba(99, 102, 241, 0.12)',
+    backgroundColor: 'rgba(14, 165, 233, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 1,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,10 @@ import {
   ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
-  PanResponder,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import moment from 'moment';
-import { DashboardData, DailyStats, MonthlyStats, SleepEvent, UserProfile, DailyActivityCheckIn, ActivityId } from '../types';
+import { DashboardData, DailyStats, MonthlyStats, UserProfile } from '../types';
 import {
   calculateDailyStats,
   calculateMonthlyStats,
@@ -19,40 +18,23 @@ import {
   calculateInterventionEffectiveness,
   calculateDailySeverity,
 } from '../utils/statsCalculator';
-import { getRecommendations, getSeverityColor, getSeverityLabel } from '../utils/recommendations';
+import { getSeverityColor, getSeverityLabel, getMoodStatus } from '../utils/recommendations';
 import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
-import { RecommendationCard } from '../components/RecommendationCard';
-import { AssessmentQuestionnaire } from '../components/AssessmentQuestionnaire';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import { calculateDashboardData } from '../services/mockBLEService';
 import { bleService } from '../services/bleService';
-import { loadDailyActivityCheckIn, saveDailyActivityCheckIn } from '../services/userStorage';
-import { colors } from '../constants/theme';
+import { scheduleDailyAdviceNotifications } from '../services/dailyAdviceNotifications';
 import { useDevice } from '../context/DeviceContext';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { colors } from '../constants/theme';
 
 interface DashboardScreenProps {
   userName: string;
   userProfile?: UserProfile;
 }
-
-const LOGS_PER_PAGE = 10;
-const TAB_ORDER = ['analytics', 'recommendations', 'logs'] as const;
-type DashboardTab = (typeof TAB_ORDER)[number];
-
-const getLogSeverityStyle = (severity: string) => {
-  switch (severity) {
-    case 'high':
-      return { color: '#ef4444', bg: 'rgba(239, 68, 68, 0.14)', label: 'High' };
-    case 'medium':
-      return { color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.14)', label: 'Medium' };
-    default:
-      return { color: '#10b981', bg: 'rgba(16, 185, 129, 0.14)', label: 'Low' };
-  }
-};
 
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, userProfile }) => {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -60,10 +42,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TimePeriod>('week');
   const [monthHistory, setMonthHistory] = useState<MonthlyStats[]>([]);
-  const [activeTab, setActiveTab] = useState<DashboardTab>('analytics');
-  const [eventLogs, setEventLogs] = useState<SleepEvent[]>([]);
-  const [sortOption, setSortOption] = useState<'date' | 'severity' | 'duration'>('date');
-  const [logsPage, setLogsPage] = useState(0);
   const [deviceStatus, setDeviceStatus] = useState({
     connected: false,
     mode: 'Connecting…',
@@ -76,55 +54,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     from: moment().subtract(7, 'days').format('YYYY-MM-DD'),
     to: moment().format('YYYY-MM-DD'),
   });
-  const [todayCheckIn, setTodayCheckIn] = useState<DailyActivityCheckIn | null>(null);
-  const todayDate = moment().format('YYYY-MM-DD');
 
   const { connected, pairedDevice } = useDevice();
-  const activeTabRef = useRef<DashboardTab>(activeTab);
-
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
 
   useEffect(() => {
     loadData();
     return bleService.subscribeEvents((event) => {
-      setEventLogs((current) => [event, ...current]);
       setDashboardData((current) =>
         calculateDashboardData([event, ...(current?.allData ?? [])]),
       );
     });
   }, []);
-
-  useEffect(() => {
-    setLogsPage(0);
-  }, [sortOption, dateRange.from, dateRange.to, activeFilter]);
-
-  const switchTab = (nextTab: DashboardTab) => {
-    if (nextTab === activeTabRef.current) return;
-    setActiveTab(nextTab);
-    activeTabRef.current = nextTab;
-  };
-
-  const goToAdjacentTab = (direction: 1 | -1) => {
-    const index = TAB_ORDER.indexOf(activeTabRef.current);
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= TAB_ORDER.length) return;
-    switchTab(TAB_ORDER[nextIndex]);
-  };
-
-  const panResponder = useMemo(
-    () =>
-      PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gesture) =>
-          Math.abs(gesture.dx) > 24 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4,
-        onPanResponderRelease: (_, gesture) => {
-          if (gesture.dx <= -50) goToAdjacentTab(1);
-          else if (gesture.dx >= 50) goToAdjacentTab(-1);
-        },
-      }),
-    [],
-  );
 
   const loadData = async () => {
     try {
@@ -138,7 +78,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         }
       }
       const events = await bleService.fetchSleepEvents();
-      setEventLogs(events);
       const data = calculateDashboardData(events);
       setDashboardData(data);
 
@@ -154,8 +93,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           months.length >= 3 ? calculateTrend(months.slice(0, 2)) : 'stable';
       }
       setMonthHistory(months);
-      const checkIn = await loadDailyActivityCheckIn(todayDate);
-      setTodayCheckIn(checkIn);
       const device = bleService.getPairedDevice();
       setDeviceStatus({
         connected: bleService.getIsConnected(),
@@ -186,22 +123,18 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     setRefreshing(false);
   };
 
-  const handleActivitySave = async (payload: { activities: ActivityId[]; otherActivityNote?: string }) => {
-    const checkIn: DailyActivityCheckIn = {
-      date: todayDate,
-      activities: payload.activities,
-      otherActivityNote: payload.otherActivityNote?.trim() || null,
-      updatedAt: Date.now(),
-    };
-    await saveDailyActivityCheckIn(checkIn);
-    setTodayCheckIn(checkIn);
-  };
+  useEffect(() => {
+    if (!dashboardData) return;
+    const severity = dashboardData.today.severity;
+    const trendValue = dashboardData.thisMonth.trend;
+    scheduleDailyAdviceNotifications(severity, trendValue).catch(() => undefined);
+  }, [dashboardData?.today.severity, dashboardData?.thisMonth.trend]);
 
   if (loading) {
     return (
       <SafeAreaView style={styles.loadingContainer} edges={['top', 'left', 'right']}>
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#6366f1" />
+          <ActivityIndicator size="large" color="#0ea5e9" />
           <Text style={styles.loadingText}>Syncing biosensor data...</Text>
         </View>
       </SafeAreaView>
@@ -351,44 +284,10 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     }
   };
 
-  const getFilteredAndSortedLogs = (): SleepEvent[] => {
-    const from = moment(dateRange.from);
-    const to = moment(dateRange.to);
-    const severityRank: Record<SleepEvent['severity'], number> = { low: 1, medium: 2, high: 3 };
-
-    return [...eventLogs]
-      .filter((event) => {
-        const eventDate = moment(event.timestamp);
-        return eventDate.isSameOrAfter(from, 'day') && eventDate.isSameOrBefore(to, 'day');
-      })
-      .sort((a, b) => {
-        if (sortOption === 'duration') return b.duration - a.duration;
-        if (sortOption === 'severity') return severityRank[b.severity] - severityRank[a.severity];
-        return b.timestamp - a.timestamp;
-      });
-  };
-
-  const visibleLogs = getFilteredAndSortedLogs();
-  const logCount = visibleLogs.length;
-  const totalLogPages = Math.max(1, Math.ceil(logCount / LOGS_PER_PAGE));
-  const currentLogsPage = Math.min(logsPage, totalLogPages - 1);
-  const paginatedLogs = visibleLogs.slice(
-    currentLogsPage * LOGS_PER_PAGE,
-    currentLogsPage * LOGS_PER_PAGE + LOGS_PER_PAGE,
-  );
-  const logRangeStart = logCount === 0 ? 0 : currentLogsPage * LOGS_PER_PAGE + 1;
-  const logRangeEnd = Math.min(logCount, (currentLogsPage + 1) * LOGS_PER_PAGE);
-
   const { stats, trend } = getDisplayStats();
   const { data: chartData, title: chartTitle } = getChartData();
-  const recommendations = getRecommendations(
-    stats,
-    dashboardData.thisMonth,
-    trend,
-    todayCheckIn,
-    todayDate,
-  );
   const severityColor = getSeverityColor(stats.severity);
+  const mood = getMoodStatus(stats.severity);
   const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
   const lowBattery = deviceStatus.battery <= 20;
   const activeAlerts = [
@@ -401,7 +300,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#6366f1" />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0ea5e9" />
         }
         showsVerticalScrollIndicator={false}
       >
@@ -455,6 +354,22 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         ) : null}
 
         <View style={styles.sectionPadding}>
+          <Text style={styles.moodSectionLabel}>Mood status</Text>
+          <GlassCard style={[styles.moodCard, { backgroundColor: mood.background, borderColor: mood.color }]}>
+            <View style={[styles.moodIconWrap, { backgroundColor: `${mood.color}22` }]}>
+              <FontAwesome5 name={mood.icon as any} size={22} color={mood.color} solid />
+            </View>
+            <View style={styles.moodCopy}>
+              <Text style={[styles.moodLabel, { color: mood.color }]}>{mood.label}</Text>
+              <Text style={styles.moodCaption}>{mood.caption}</Text>
+              <Text style={styles.moodMeta}>
+                Based on {getSeverityLabel(stats.severity).toLowerCase()} snoring status
+              </Text>
+            </View>
+          </GlassCard>
+        </View>
+
+        <View style={styles.sectionPadding}>
           <StatsFilter
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
@@ -463,321 +378,140 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           />
         </View>
 
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'analytics' && styles.tabButtonActive]}
-            onPress={() => switchTab('analytics')}
-            activeOpacity={0.8}
-          >
-            <FontAwesome5
-              name="chart-pie"
-              size={13}
-              color={activeTab === 'analytics' ? colors.onAccent : colors.textMuted}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={[styles.tabText, activeTab === 'analytics' && styles.tabTextActive]}>
-              Analytics
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'recommendations' && styles.tabButtonActive]}
-            onPress={() => switchTab('recommendations')}
-            activeOpacity={0.8}
-          >
-            <FontAwesome5
-              name="stethoscope"
-              size={13}
-              color={activeTab === 'recommendations' ? colors.onAccent : colors.textMuted}
-              style={{ marginRight: 6 }}
-            />
-            <Text
-              style={[styles.tabText, activeTab === 'recommendations' && styles.tabTextActive]}
-            >
-              Assessment
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabButton, activeTab === 'logs' && styles.tabButtonActive]}
-            onPress={() => switchTab('logs')}
-            activeOpacity={0.8}
-          >
-            <FontAwesome5
-              name="clipboard-list"
-              size={13}
-              color={activeTab === 'logs' ? colors.onAccent : colors.textMuted}
-              style={{ marginRight: 6 }}
-            />
-            <Text style={[styles.tabText, activeTab === 'logs' && styles.tabTextActive]}>Logs</Text>
-          </TouchableOpacity>
+        <View style={styles.metricsSection}>
+          <StatsCard
+            label="Snoring Events"
+            value={stats.totalSnoreEvents}
+            icon="volume-up"
+            severity={stats.severity}
+          />
+          <StatsCard
+            label="Avg. Duration"
+            value={stats.averageDuration}
+            icon="clock"
+            unit=" sec"
+          />
+          <StatsCard label="Interventions" value={stats.interventionCount} icon="wind" />
+          <StatsCard
+            label="Peak Hour"
+            value={moment(stats.peakHour, 'H').format('hA')}
+            icon="moon"
+          />
+          <StatsCard
+            label="Intervention Success"
+            value={`${Math.round(interventionMetrics.successRatio * 100)}%`}
+            icon="check-double"
+            severity={
+              interventionMetrics.trend === 'improving'
+                ? 'normal'
+                : interventionMetrics.trend === 'worsening'
+                  ? 'danger'
+                  : 'bad'
+            }
+          />
         </View>
 
-        <Text style={styles.swipeHint}>Swipe left or right to switch tabs</Text>
+        <View style={styles.sectionPadding}>
+          <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
+        </View>
 
-        <View {...panResponder.panHandlers}>
-          {activeTab === 'analytics' ? (
-            <>
-              <View style={styles.metricsSection}>
-                <StatsCard
-                  label="Snoring Events"
-                  value={stats.totalSnoreEvents}
-                  icon="volume-up"
-                  severity={stats.severity}
-                />
-                <StatsCard
-                  label="Avg. Duration"
-                  value={stats.averageDuration}
-                  icon="clock"
-                  unit=" sec"
-                />
-                <StatsCard label="Interventions" value={stats.interventionCount} icon="wind" />
-                <StatsCard
-                  label="Peak Hour"
-                  value={moment(stats.peakHour, 'H').format('hA')}
-                  icon="moon"
-                />
-                <StatsCard
-                  label="Intervention Success"
-                  value={`${Math.round(interventionMetrics.successRatio * 100)}%`}
-                  icon="check-double"
-                  severity={
-                    interventionMetrics.trend === 'improving'
-                      ? 'normal'
-                      : interventionMetrics.trend === 'worsening'
-                        ? 'danger'
-                        : 'bad'
-                  }
-                />
-              </View>
-
-              <View style={styles.sectionPadding}>
-                <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
-              </View>
-
-              <View style={styles.trendSection}>
-                <Text style={styles.trendLabel}>Monthly Trend</Text>
-                <GlassCard style={styles.trendCard}>
-                  <View
-                    style={[
-                      styles.trendSummary,
-                      {
-                        backgroundColor:
-                          trend === 'improving'
-                            ? '#10b98120'
-                            : trend === 'worsening'
-                              ? '#ef444420'
-                              : '#f59e0b20',
-                      },
-                    ]}
-                  >
-                    <FontAwesome5
-                      name={
-                        trend === 'improving'
-                          ? 'chart-line'
-                          : trend === 'worsening'
-                            ? 'exclamation-triangle'
-                            : 'equals'
-                      }
-                      size={14}
-                      color={
-                        trend === 'improving'
-                          ? '#10b981'
-                          : trend === 'worsening'
-                            ? '#ef4444'
-                            : '#f59e0b'
-                      }
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text
-                      style={[
-                        styles.trendSummaryText,
-                        {
-                          color:
-                            trend === 'improving'
-                              ? '#10b981'
-                              : trend === 'worsening'
-                                ? '#ef4444'
-                                : '#f59e0b',
-                        },
-                      ]}
-                    >
-                      {trend === 'improving'
-                        ? 'Improving over time'
-                        : trend === 'worsening'
-                          ? 'Worsening over time'
-                          : 'Stable pattern'}
-                    </Text>
-                  </View>
-
-                  {monthHistory.map((m, i) => {
-                    const prev = monthHistory[i - 1];
-                    const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : null;
-                    const mColor = getSeverityColor(m.severity);
-                    return (
-                      <View key={m.month} style={styles.monthRow}>
-                        <View style={styles.monthLeft}>
-                          <Text style={styles.monthName}>
-                            {moment(m.month, 'YYYY-MM').format('MMMM YYYY')}
-                          </Text>
-                          <View style={[styles.monthSeverityBadge, { backgroundColor: mColor + '22' }]}>
-                            <View style={[styles.monthDot, { backgroundColor: mColor }]} />
-                            <Text style={[styles.monthSeverityText, { color: mColor }]}>
-                              {m.severity.charAt(0).toUpperCase() + m.severity.slice(1)}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={styles.monthRight}>
-                          <Text style={styles.monthEvents}>{m.totalSnoreEvents}</Text>
-                          <Text style={styles.monthEventsLabel}>events</Text>
-                          {change !== null && (
-                            <View style={styles.monthChange}>
-                              <FontAwesome5
-                                name={change < 0 ? 'arrow-down' : change > 0 ? 'arrow-up' : 'minus'}
-                                size={10}
-                                color={change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b'}
-                              />
-                              <Text
-                                style={[
-                                  styles.monthChangeText,
-                                  {
-                                    color:
-                                      change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b',
-                                  },
-                                ]}
-                              >
-                                {Math.abs(change)}
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </GlassCard>
-              </View>
-            </>
-          ) : activeTab === 'recommendations' ? (
-            <View style={styles.recommendationSection}>
-              <AssessmentQuestionnaire
-                initialActivities={todayCheckIn?.activities ?? []}
-                initialOtherNote={todayCheckIn?.otherActivityNote ?? ''}
-                savedForToday={!!todayCheckIn}
-                onSave={handleActivitySave}
+        <View style={styles.trendSection}>
+          <Text style={styles.trendLabel}>Monthly Trend</Text>
+          <GlassCard style={styles.trendCard}>
+            <View
+              style={[
+                styles.trendSummary,
+                {
+                  backgroundColor:
+                    trend === 'improving'
+                      ? '#10b98120'
+                      : trend === 'worsening'
+                        ? '#ef444420'
+                        : '#f59e0b20',
+                },
+              ]}
+            >
+              <FontAwesome5
+                name={
+                  trend === 'improving'
+                    ? 'chart-line'
+                    : trend === 'worsening'
+                      ? 'exclamation-triangle'
+                      : 'minus'
+                }
+                size={12}
+                color={
+                  trend === 'improving'
+                    ? '#10b981'
+                    : trend === 'worsening'
+                      ? '#ef4444'
+                      : '#f59e0b'
+                }
+                style={{ marginRight: 8 }}
               />
-              <RecommendationCard data={recommendations} />
+              <Text
+                style={[
+                  styles.trendSummaryText,
+                  {
+                    color:
+                      trend === 'improving'
+                        ? '#10b981'
+                        : trend === 'worsening'
+                          ? '#ef4444'
+                          : '#f59e0b',
+                  },
+                ]}
+              >
+                {trend === 'improving'
+                  ? 'Improving'
+                  : trend === 'worsening'
+                    ? 'Worsening'
+                    : 'Stable'}
+              </Text>
             </View>
-          ) : (
-            <View style={styles.logsSection}>
-              <GlassCard style={styles.logsCard}>
-                <View style={styles.logsHeader}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.sectionHeader}>Sleep Event Logs</Text>
-                    <Text style={styles.settingDescription}>
-                      {logCount === 0
-                        ? 'No events for selected range'
-                        : `Showing ${logRangeStart}–${logRangeEnd} of ${logCount}`}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.sortRow}>
-                  <Text style={styles.sortLabel}>Sort by</Text>
-                  {(['date', 'severity', 'duration'] as const).map((option) => (
-                    <TouchableOpacity
-                      key={option}
-                      style={[styles.sortOption, sortOption === option && styles.sortOptionActive]}
-                      onPress={() => setSortOption(option)}
-                    >
-                      <Text
-                        style={[
-                          styles.sortOptionText,
-                          sortOption === option && styles.sortOptionTextActive,
-                        ]}
-                      >
-                        {option === 'date' ? 'Date' : option === 'severity' ? 'Severity' : 'Duration'}
+            {monthHistory.map((m, index) => {
+              const mColor = getSeverityColor(m.severity);
+              const prev = index > 0 ? monthHistory[index - 1] : null;
+              const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : 0;
+              return (
+                <View key={m.month} style={styles.monthRow}>
+                  <View style={styles.monthLeft}>
+                    <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM YYYY')}</Text>
+                    <View style={styles.monthSeverityBadge}>
+                      <View style={[styles.monthDot, { backgroundColor: mColor }]} />
+                      <Text style={[styles.monthSeverityText, { color: mColor }]}>
+                        {m.severity.charAt(0).toUpperCase() + m.severity.slice(1)}
                       </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-
-                {visibleLogs.length === 0 ? (
-                  <View style={styles.emptyLogsRow}>
-                    <Text style={styles.emptyLogsText}>
-                      No sleep events available for the selected range.
-                    </Text>
+                    </View>
                   </View>
-                ) : (
-                  <>
-                    {paginatedLogs.map((entry) => {
-                      const sev = getLogSeverityStyle(entry.severity);
-                      const inflated = entry.interventionTriggered;
-                      return (
-                        <View key={entry.id} style={styles.logRow}>
-                          <View
-                            style={[
-                              styles.logIconWrap,
-                              { backgroundColor: inflated ? 'rgba(99,102,241,0.16)' : sev.bg },
-                            ]}
-                          >
-                            <FontAwesome5
-                              name={inflated ? 'wind' : 'wave-square'}
-                              size={13}
-                              color={inflated ? '#818cf8' : sev.color}
-                            />
-                          </View>
-                          <View style={styles.logContent}>
-                            <Text style={styles.logTimestamp}>
-                              {inflated ? 'Pillow inflated' : 'Snore detected'}
-                            </Text>
-                            <Text style={styles.logDetails}>
-                              {moment(entry.timestamp).format('MMM D · h:mm A')}
-                            </Text>
-                          </View>
-                          <View style={styles.logRight}>
-                            <View style={[styles.severityPill, { backgroundColor: sev.bg }]}>
-                              <Text style={[styles.severityText, { color: sev.color }]}>{sev.label}</Text>
-                            </View>
-                            <Text style={styles.logDuration}>{entry.duration}s</Text>
-                          </View>
-                        </View>
-                      );
-                    })}
-
-                    {totalLogPages > 1 ? (
-                      <View style={styles.paginationRow}>
-                        <TouchableOpacity
+                  <View style={styles.monthRight}>
+                    <Text style={styles.monthEvents}>{m.totalSnoreEvents} events</Text>
+                    {prev ? (
+                      <View style={styles.monthChange}>
+                        <FontAwesome5
+                          name={change < 0 ? 'arrow-down' : change > 0 ? 'arrow-up' : 'minus'}
+                          size={10}
+                          color={change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b'}
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text
                           style={[
-                            styles.paginationButton,
-                            currentLogsPage === 0 && styles.paginationButtonDisabled,
+                            styles.monthChangeText,
+                            {
+                              color:
+                                change < 0 ? '#10b981' : change > 0 ? '#ef4444' : '#f59e0b',
+                            },
                           ]}
-                          onPress={() => setLogsPage((page) => Math.max(0, page - 1))}
-                          disabled={currentLogsPage === 0}
                         >
-                          <FontAwesome5 name="chevron-left" size={12} color="#ffffff" />
-                          <Text style={styles.paginationButtonText}>Previous</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.paginationLabel}>
-                          Page {currentLogsPage + 1} of {totalLogPages}
+                          {Math.abs(change)}
                         </Text>
-                        <TouchableOpacity
-                          style={[
-                            styles.paginationButton,
-                            currentLogsPage >= totalLogPages - 1 && styles.paginationButtonDisabled,
-                          ]}
-                          onPress={() =>
-                            setLogsPage((page) => Math.min(totalLogPages - 1, page + 1))
-                          }
-                          disabled={currentLogsPage >= totalLogPages - 1}
-                        >
-                          <Text style={styles.paginationButtonText}>Next</Text>
-                          <FontAwesome5 name="chevron-right" size={12} color="#ffffff" />
-                        </TouchableOpacity>
                       </View>
                     ) : null}
-                  </>
-                )}
-              </GlassCard>
-            </View>
-          )}
+                  </View>
+                </View>
+              );
+            })}
+          </GlassCard>
         </View>
 
         <View style={styles.footerContainer}>
@@ -807,7 +541,7 @@ const styles = StyleSheet.create({
   centerContent: { alignItems: 'center' },
   loadingText: {
     fontSize: 14,
-    color: '#6366f1',
+    color: '#0ea5e9',
     marginTop: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
@@ -821,14 +555,14 @@ const styles = StyleSheet.create({
   },
   errorHint: {
     fontSize: 13,
-    color: '#9ca3af',
+    color: '#333333',
     textAlign: 'center',
     marginBottom: 20,
     paddingHorizontal: 24,
     lineHeight: 20,
   },
   retryButton: {
-    backgroundColor: '#6366f1',
+    backgroundColor: '#0ea5e9',
     paddingHorizontal: 28,
     paddingVertical: 12,
     borderRadius: 14,
@@ -868,35 +602,33 @@ const styles = StyleSheet.create({
   alertText: { fontSize: 12, color: '#92400e', lineHeight: 18 },
 
   sectionPadding: { paddingHorizontal: 16, marginBottom: 8 },
-  swipeHint: {
-    textAlign: 'center',
+  moodSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
     color: colors.textMuted,
-    fontSize: 11,
-    marginBottom: 10,
-    fontWeight: '500',
-  },
-
-  tabContainer: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
     marginBottom: 8,
-    backgroundColor: colors.backgroundMuted,
-    borderRadius: 14,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  tabButton: {
-    flex: 1,
+  moodCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    borderRadius: 10,
+    padding: 16,
+    borderWidth: 1.5,
+    marginBottom: 8,
   },
-  tabButtonActive: { backgroundColor: colors.accent },
-  tabText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
-  tabTextActive: { color: colors.onAccent, fontWeight: '700' },
+  moodIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  moodCopy: { flex: 1 },
+  moodLabel: { fontSize: 22, fontWeight: '800', marginBottom: 4 },
+  moodCaption: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: 4 },
+  moodMeta: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
 
   metricsSection: {
     flexDirection: 'row',
@@ -952,6 +684,12 @@ const styles = StyleSheet.create({
   monthChangeText: { fontSize: 11, fontWeight: '700' },
 
   recommendationSection: { paddingHorizontal: 16, marginBottom: 16 },
+  adviceHint: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 17,
+    marginBottom: 10,
+  },
   logsSection: { paddingHorizontal: 16, marginBottom: 20 },
   logsCard: { padding: 16 },
   sectionHeader: { fontSize: 16, fontWeight: '700', color: colors.text, marginBottom: 6 },
@@ -971,7 +709,7 @@ const styles = StyleSheet.create({
   },
   sortOptionActive: {
     backgroundColor: colors.accentSoft,
-    borderColor: 'rgba(99,102,241,0.35)',
+    borderColor: 'rgba(14, 165, 233,0.35)',
   },
   sortOptionText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
   sortOptionTextActive: { color: colors.accent },
@@ -1038,5 +776,5 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
   },
-  footerText: { fontSize: 11, color: '#6b7280', fontStyle: 'italic' },
+  footerText: { fontSize: 11, color: '#333333', fontStyle: 'italic' },
 });

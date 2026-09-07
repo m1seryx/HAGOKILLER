@@ -41,9 +41,9 @@ export const ProfileAvatar: React.FC<ProfileAvatarProps> = ({
 
 const styles = StyleSheet.create({
   frame: {
-    backgroundColor: 'rgba(99, 102, 241, 0.28)',
+    backgroundColor: 'rgba(14, 165, 233, 0.28)',
     borderWidth: 1.5,
-    borderColor: 'rgba(165, 180, 252, 0.55)',
+    borderColor: 'rgba(14, 165, 233, 0.55)',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -53,7 +53,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   initial: {
-    color: '#ffffff',
+    color: '#000000',
     fontWeight: '800',
   },
 });

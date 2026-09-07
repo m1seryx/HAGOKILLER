@@ -16,7 +16,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
   label, value, icon = 'chart-bar', severity, unit = '',
 }) => {
   const isSeverity = !!severity;
-  const severityColor = severity ? getSeverityColor(severity) : '#6366f1';
+  const severityColor = severity ? getSeverityColor(severity) : '#0ea5e9';
   const displayLabel = severity ? getSeverityLabel(severity) : '';
 
   return (

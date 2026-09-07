@@ -30,8 +30,8 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
         {
           data: eventCounts,
           strokeWidth: 3,
-          color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`, // Electric Indigo
-          fillShadowGradient: '#6366f1',
+          color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`, // Sky blue
+          fillShadowGradient: '#0ea5e9',
           fillShadowGradientOpacity: 0.15,
         },
       ],
@@ -68,7 +68,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
     backgroundGradientFrom: colors.chartGradientFrom,
     backgroundGradientTo: colors.chartGradientTo,
     decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(99, 102, 241, ${opacity})`,
+    color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
     labelColor: (opacity = 1) => `rgba(100, 116, 139, ${opacity})`,
     style: {
       borderRadius: 16,
@@ -76,7 +76,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
     propsForDots: {
       r: '5',
       strokeWidth: '2.5',
-      stroke: '#6366f1',
+      stroke: '#0ea5e9',
       fill: colors.chartFill,
     },
     propsForBackgroundLines: {
@@ -125,7 +125,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
 
       <View style={styles.legend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendColor, { backgroundColor: '#6366f1' }]} />
+          <View style={[styles.legendColor, { backgroundColor: '#0ea5e9' }]} />
           <Text style={styles.legendLabel}>Snore Events (Count)</Text>
         </View>
         <View style={styles.legendDivider} />
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
   titleIndicator: {
     width: 4,
     height: 14,
-    backgroundColor: '#6366f1',
+    backgroundColor: '#0ea5e9',
     borderRadius: 2,
   },
   title: {

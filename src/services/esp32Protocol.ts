@@ -18,10 +18,24 @@ import {
  */
 export const ESP32_MSG_MAGIC = 0x48474f4b;
 export const ESP32_EVENT_SOUND = 1;
+export const ESP32_EVENT_HEARTBEAT = 2;
+/** Planned firmware ESP-NOW: force air pump off (manual stop). */
+export const ESP32_EVENT_STOP = 3;
+/** Planned firmware ESP-NOW: open solenoid to release air. */
+export const ESP32_EVENT_OPEN_VALVE = 4;
 export const ESP32_FLAG_INTERVENTION = 0x01;
 export const ESP32_SETTINGS_MAGIC = 0x48475354;
+/** Command packet magic ("HGCM") written to the settings characteristic. */
+export const ESP32_COMMAND_MAGIC = 0x4847434d;
 
 export const SETTINGS_CHAR_UUID = '6ba1d005-8e2a-4b7c-9f10-22c0a1b2c3d4';
+
+export type PillowCommand = 'emergency_stop' | 'open_valve';
+
+export const PILLOW_COMMAND_OPCODE: Record<PillowCommand, number> = {
+  emergency_stop: 1,
+  open_valve: 2,
+};
 
 export interface Esp32PillowPacket {
   magic: number;
@@ -64,12 +78,41 @@ export function parseEsp32PillowPacket(bytes: Uint8Array): Esp32PillowPacket | n
   };
 }
 
+/**
+ * Packed BLE write matching firmware `SettingsMsg`:
+ *   uint32 magic 0x48475354
+ *   uint8  snoreThreshold
+ *   uint8  pumpSeconds
+ *   uint8  micShift
+ *   uint8  snoreWindowSec  (was reserved; firmware must start reading this)
+ */
 export function encodePillowSettings(settings: DeviceSettings): Uint8Array {
   const out = new Uint8Array(8);
   writeU32LE(out, 0, ESP32_SETTINGS_MAGIC);
   out[4] = settings.snoreThreshold & 0xff;
   out[5] = settings.pumpDuration & 0xff;
   out[6] = settings.micShift & 0xff;
+  out[7] = settings.snoreWindowSec & 0xff;
+  return out;
+}
+
+/**
+ * Packed BLE write for emergency / valve commands (same SETTINGS char, different magic).
+ * Firmware must branch on magic before treating the payload as SettingsMsg.
+ *   uint32 magic 0x4847434D
+ *   uint8  opcode (1 = emergency stop, 2 = open valve)
+ *   uint8  argSeconds (valve open duration; 0 = firmware default)
+ *   uint8  reserved[2]
+ */
+export function encodePillowCommand(
+  command: PillowCommand,
+  argSeconds = 0,
+): Uint8Array {
+  const out = new Uint8Array(8);
+  writeU32LE(out, 0, ESP32_COMMAND_MAGIC);
+  out[4] = PILLOW_COMMAND_OPCODE[command] & 0xff;
+  out[5] = Math.max(0, Math.min(120, Math.round(argSeconds))) & 0xff;
+  out[6] = 0;
   out[7] = 0;
   return out;
 }

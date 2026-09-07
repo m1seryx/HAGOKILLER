@@ -12,7 +12,7 @@ import { BLEDevice, SleepEvent } from '../types';
 import { isValidPairingPin } from '../utils/pinValidation';
 import { loadPairedDevice, savePairedDevice, setDevicePaired, persistPillowEvent } from './userStorage';
 import { DeviceSettings, MockBLEService } from './mockBLEService';
-import { parseEsp32PillowPacket, sleepEventFromEsp32Packet, encodePillowSettings, SETTINGS_CHAR_UUID } from './esp32Protocol';
+import { parseEsp32PillowPacket, sleepEventFromEsp32Packet, encodePillowSettings, encodePillowCommand, SETTINGS_CHAR_UUID, PillowCommand } from './esp32Protocol';
 
 export const PHONE_SERVICE_UUID = '6ba1d001-8e2a-4b7c-9f10-22c0a1b2c3d4';
 export const PIN_CHAR_UUID = '6ba1d002-8e2a-4b7c-9f10-22c0a1b2c3d4';
@@ -415,6 +415,24 @@ export class RealBleService {
 
   getDeviceSettings() {
     return this.data.getDeviceSettings();
+  }
+
+  async sendDeviceCommand(command: PillowCommand, argSeconds = 0): Promise<void> {
+    if (!this.activeDevice || !this.connected) {
+      throw new Error('Connect the pillow before using emergency controls.');
+    }
+    const payload = encodePillowCommand(command, argSeconds);
+    try {
+      await this.activeDevice.writeCharacteristicWithResponseForService(
+        PHONE_SERVICE_UUID,
+        SETTINGS_CHAR_UUID,
+        toBase64Bytes(payload),
+      );
+    } catch {
+      throw new Error(
+        'Pillow did not accept the command. Flash the firmware that supports emergency STOP / valve commands.',
+      );
+    }
   }
 
   private async pushSettingsToDevice(settings: DeviceSettings): Promise<void> {
