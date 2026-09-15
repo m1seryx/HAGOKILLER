@@ -188,8 +188,8 @@ export const SettingsScreen = () => {
       setCommandError(false);
       setCommandMessage(
         command === 'emergency_stop'
-          ? 'Air pump stop sent — pump should turn off (needs updated firmware).'
-          : 'Open valve sent — solenoid should release air (needs updated firmware).',
+          ? 'Air pump stop sent to pillow.'
+          : 'Open solenoid valve sent to pillow.',
       );
       setTimeout(() => setCommandMessage(''), 4000);
     } catch (error) {
@@ -578,8 +578,7 @@ export const SettingsScreen = () => {
         <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>Prototype safety controls</Text>
           <Text style={styles.cardHint}>
-            Use if inflation fails or the pillow stays pressurized. Requires updated pillow firmware;
-            the app sends the BLE command when connected.
+            Use if inflation fails or the pillow stays pressurized. Pillow must be connected over BLE.
           </Text>
 
           {commandMessage ? (

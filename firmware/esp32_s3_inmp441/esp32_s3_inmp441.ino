@@ -21,10 +21,17 @@
  *   RED   = sound heard, not snoring
  *   BLUE  = snoring
  *
- * ML decision is 50/50: whichever class scores higher wins.
+ * ML decision: snore wins only if score >= 60% and higher than non-snore.
+ * Counting: min 5s between counted snores; mute during pump/valve + settle.
+ *
+ * Pillow cycle (with air-pump ESP):
+ *   3 snores -> full inflate -> elevated
+ *   still snore elevated -> top-up 2s -> after 1 min solenoid 3s
+ *   still snore -> gradual short valve pulses (pump board)
+ *   quiet elevated -> 10 min hold -> solenoid 10s full deflate
+ *
  * Phone settings (BLE): snore count, window seconds, pump seconds, mic shift.
  * Phone commands (BLE): manual stop pump, open solenoid valve.
- * Sound gate is tuned for near-pillow audio (not across the room).
  */
 
 #include <Arduino.h>
@@ -68,7 +75,17 @@
 #define SNORE_WINDOW_MIN 5
 #define SNORE_WINDOW_MAX 60
 #define SNORE_TIMES_MAX 10
-#define VALVE_SEC_DEFAULT 8
+/** Min gap between counted snore events (stops one long snore = 2–3 counts). */
+#define SNORE_MIN_GAP_MS 5000UL
+/** Extra quiet time after pump finishes before counting snores again. */
+#define POST_PUMP_MUTE_MS 8000UL
+/** Require clearer snore confidence than plain 50/50. */
+#define SNORE_MIN_SCORE 0.60f
+#define VALVE_SEC_DEFAULT 10
+#define TOPUP_SEC 2
+#define TOPUP_SEND_COOLDOWN_MS 90000UL
+#define QUIET_CONFIRM_MS 30000UL
+#define QUIET_HOLD_MS (10UL * 60UL * 1000UL)
 #define SEND_COOLDOWN_MS 2000
 #define ESPNOW_CHANNEL 1
 #define HEARTBEAT_MS 3000
@@ -104,6 +121,11 @@ uint8_t loudStreak = 0;
 bool pendingRecalibrate = false;
 unsigned long snoreTimes[SNORE_TIMES_MAX];
 uint8_t snoreTimeCount = 0;
+unsigned long lastCountedSnoreMs = 0;
+unsigned long listenMuteUntilMs = 0;
+bool pillowElevated = false;
+unsigned long quietSinceMs = 0;
+unsigned long lastTopupSendMs = 0;
 
 BLECharacteristic *authChar = nullptr;
 BLECharacteristic *eventChar = nullptr;
@@ -143,6 +165,7 @@ static const uint8_t EVENT_SOUND = 1;
 static const uint8_t EVENT_HEARTBEAT = 2;
 static const uint8_t EVENT_STOP = 3;
 static const uint8_t EVENT_OPEN_VALVE = 4;
+static const uint8_t EVENT_SNORE_ACTIVE = 5;
 static const uint8_t FLAG_INTERVENTION = 0x01;
 static const uint8_t CMD_STOP = 1;
 static const uint8_t CMD_OPEN_VALVE = 2;
@@ -235,6 +258,32 @@ void clearSnoreWindow()
     snoreStreak = 0;
 }
 
+void clearElevatedState()
+{
+    pillowElevated = false;
+    quietSinceMs = 0;
+    lastTopupSendMs = 0;
+}
+
+void armActuatorMute(unsigned long now, unsigned long actuatorMs)
+{
+    unsigned long until = now + actuatorMs + POST_PUMP_MUTE_MS;
+    if ((long)(until - listenMuteUntilMs) > 0) listenMuteUntilMs = until;
+    clearSnoreWindow();
+}
+
+void armPostPumpMute(unsigned long now)
+{
+    armActuatorMute(now, (unsigned long)pumpSeconds * 1000UL);
+}
+
+bool snoreListenMuted(unsigned long now)
+{
+    if ((long)(now - listenMuteUntilMs) < 0) return true;
+    if ((long)(now - pumpLockUntilMs) < 0) return true;
+    return false;
+}
+
 uint8_t refreshSnoreWindow(unsigned long now)
 {
     unsigned long windowMs = (unsigned long)snoreWindowSec * 1000UL;
@@ -249,8 +298,19 @@ uint8_t refreshSnoreWindow(unsigned long now)
     return snoreStreak;
 }
 
+/**
+ * Count a snore only if enough time passed since the last counted one.
+ * Returns 0xFF if ignored (gap / mute), else current streak.
+ */
 uint8_t noteSnoreEvent(unsigned long now)
 {
+    if (snoreListenMuted(now)) {
+        return 0xFF;
+    }
+    if (lastCountedSnoreMs != 0 && (now - lastCountedSnoreMs) < SNORE_MIN_GAP_MS) {
+        return 0xFE;
+    }
+
     refreshSnoreWindow(now);
     if (snoreTimeCount < SNORE_TIMES_MAX) {
         snoreTimes[snoreTimeCount++] = now;
@@ -258,6 +318,7 @@ uint8_t noteSnoreEvent(unsigned long now)
         for (uint8_t i = 1; i < SNORE_TIMES_MAX; i++) snoreTimes[i - 1] = snoreTimes[i];
         snoreTimes[SNORE_TIMES_MAX - 1] = now;
     }
+    lastCountedSnoreMs = now;
     snoreStreak = snoreTimeCount;
     return snoreStreak;
 }
@@ -302,7 +363,9 @@ void applyCommandPacket(const uint8_t *data, size_t len)
 
     if (msg.opcode == CMD_STOP) {
         clearSnoreWindow();
+        clearElevatedState();
         pumpLockUntilMs = 0;
+        listenMuteUntilMs = 0;
         sendPumpControlEvent(EVENT_STOP, 0);
         Serial.println("BLE: manual STOP -> pump ESP");
         return;
@@ -314,6 +377,8 @@ void applyCommandPacket(const uint8_t *data, size_t len)
         sendPumpControlEvent(EVENT_STOP, 0);
         delay(30);
         sendPumpControlEvent(EVENT_OPEN_VALVE, secs);
+        clearElevatedState();
+        armActuatorMute(millis(), (unsigned long)secs * 1000UL);
         Serial.print("BLE: OPEN VALVE -> pump ESP  ");
         Serial.print(secs);
         Serial.println(" sec");
@@ -349,6 +414,7 @@ void applySettingsPacket(const uint8_t *data, size_t len)
         SNORE_WINDOW_MAX
     );
     clearSnoreWindow();
+    clearElevatedState();
     pumpLockUntilMs = 0;
     if (shiftChanged && iotStarted && i2sReady) pendingRecalibrate = true;
 
@@ -494,6 +560,18 @@ void fillPumpMsg(PumpMsg &msg, uint8_t level, uint16_t rms, uint8_t streak, bool
     msg.reserved = 0;
 }
 
+void fillPumpMsgSeconds(PumpMsg &msg, uint8_t level, uint16_t rms, uint8_t streak, uint8_t seconds)
+{
+    msg.magic = MSG_MAGIC;
+    msg.event = EVENT_SOUND;
+    msg.level = level;
+    msg.rms = rms;
+    msg.pumpSeconds = seconds;
+    msg.streak = streak;
+    msg.flags = FLAG_INTERVENTION;
+    msg.reserved = 0;
+}
+
 void notifyPhone(uint8_t level, uint16_t rms, uint8_t streak, bool intervene)
 {
     if (!phoneAuthenticated || eventChar == nullptr) return;
@@ -510,23 +588,114 @@ bool pumpIsLocked(unsigned long now)
     return (long)(now - pumpLockUntilMs) < 0;
 }
 
-void notifyPump(uint8_t level, uint16_t rms, uint8_t streak)
+bool notifyPumpFull(uint8_t level, uint16_t rms, uint8_t streak)
 {
     unsigned long now = millis();
     if (pumpIsLocked(now)) {
-        Serial.println("ESP-NOW -> pump skipped (still in pump window)");
-        return;
+        unsigned long leftMs = pumpLockUntilMs - now;
+        Serial.print("ESP-NOW -> pump skipped (still in pump lock, ");
+        Serial.print((leftMs + 999UL) / 1000UL);
+        Serial.println("s left)");
+        return false;
     }
+    if (now - lastSendMs < SEND_COOLDOWN_MS) {
+        Serial.println("ESP-NOW -> pump skipped (send cooldown)");
+        return false;
+    }
+    lastSendMs = now;
+
+    PumpMsg msg;
+    fillPumpMsgSeconds(msg, level, rms, streak, pumpSeconds);
+    esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
+    pumpLockUntilMs = now + (unsigned long)pumpSeconds * 1000UL;
+    Serial.print("ESP-NOW -> FULL pump  ");
+    Serial.print(pumpSeconds);
+    Serial.println(" sec");
+    return true;
+}
+
+bool notifyPumpTopup(uint8_t level, uint16_t rms, uint8_t streak)
+{
+    unsigned long now = millis();
+    if (pumpIsLocked(now)) {
+        Serial.println("ESP-NOW -> top-up skipped (pump lock)");
+        return false;
+    }
+    if (lastTopupSendMs != 0 && (now - lastTopupSendMs) < TOPUP_SEND_COOLDOWN_MS) {
+        Serial.println("ESP-NOW -> top-up skipped (cooldown)");
+        return false;
+    }
+    if (now - lastSendMs < SEND_COOLDOWN_MS) {
+        Serial.println("ESP-NOW -> top-up skipped (send cooldown)");
+        return false;
+    }
+    lastSendMs = now;
+    lastTopupSendMs = now;
+
+    PumpMsg msg;
+    fillPumpMsgSeconds(msg, level, rms, streak, TOPUP_SEC);
+    esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
+    pumpLockUntilMs = now + (unsigned long)TOPUP_SEC * 1000UL;
+    Serial.print("ESP-NOW -> TOP-UP pump  ");
+    Serial.print(TOPUP_SEC);
+    Serial.println(" sec");
+    return true;
+}
+
+void notifySnoreActive(uint8_t level, uint16_t rms, uint8_t streak)
+{
+    unsigned long now = millis();
     if (now - lastSendMs < SEND_COOLDOWN_MS) return;
     lastSendMs = now;
 
     PumpMsg msg;
-    fillPumpMsg(msg, level, rms, streak, true);
+    memset(&msg, 0, sizeof(msg));
+    msg.magic = MSG_MAGIC;
+    msg.event = EVENT_SNORE_ACTIVE;
+    msg.level = level;
+    msg.rms = rms;
+    msg.streak = streak;
     esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
-    pumpLockUntilMs = now + (unsigned long)pumpSeconds * 1000UL;
-    Serial.print("ESP-NOW -> pump  ");
-    Serial.print(pumpSeconds);
-    Serial.println(" sec");
+    Serial.println("ESP-NOW -> snore-active (elevated)");
+}
+
+bool notifyPump(uint8_t level, uint16_t rms, uint8_t streak)
+{
+    return notifyPumpFull(level, rms, streak);
+}
+
+void markSnoringWhileElevated(unsigned long now)
+{
+    quietSinceMs = 0;
+}
+
+void updateElevatedQuietWatch(unsigned long now, bool heardSnore)
+{
+    if (!pillowElevated) return;
+
+    if (heardSnore) {
+        quietSinceMs = 0;
+        return;
+    }
+
+    // Only advance quiet when not muted (real quiet, not actuator mute).
+    if (snoreListenMuted(now)) return;
+
+    if (quietSinceMs == 0) {
+        if (lastCountedSnoreMs != 0 && (now - lastCountedSnoreMs) >= QUIET_CONFIRM_MS) {
+            quietSinceMs = now;
+            Serial.println("elevated quiet confirmed — 10 min hold started");
+        }
+        return;
+    }
+
+    if ((now - quietSinceMs) >= QUIET_HOLD_MS) {
+        Serial.println("elevated quiet 10 min — request full deflate 10s");
+        sendPumpControlEvent(EVENT_OPEN_VALVE, VALVE_SEC_DEFAULT);
+        armActuatorMute(now, (unsigned long)VALVE_SEC_DEFAULT * 1000UL);
+        clearElevatedState();
+        clearSnoreWindow();
+    }
 }
 
 void sendMicHeartbeat()
@@ -752,7 +921,8 @@ float getNonSnoringScore(ei_impulse_result_t &result)
 
 bool isSnoringWinner(float snoringScore, float nonSnoringScore)
 {
-    return snoringScore >= nonSnoringScore;
+    // Need a clear snore majority — avoids weak 51/49 flips on pump/ambient noise.
+    return snoringScore >= SNORE_MIN_SCORE && snoringScore > nonSnoringScore;
 }
 
 uint8_t snoreLevelFromScore(float snoringScore, float rms)
@@ -790,7 +960,9 @@ void printResult(ei_impulse_result_t &result, float rms, int peak)
     Serial.print(snoringScore * 100.0f, 2);
     Serial.print("%   Non-snoring: ");
     Serial.print(nonSnoringScore * 100.0f, 2);
-    Serial.println("%   (50/50: higher wins)");
+    Serial.print("%   (need snore >= ");
+    Serial.print(SNORE_MIN_SCORE * 100.0f, 0);
+    Serial.println("% and higher than non-snore)");
     Serial.print("RMS: ");
     Serial.println(rms, 1);
     Serial.print("Peak: ");
@@ -801,31 +973,69 @@ void printResult(ei_impulse_result_t &result, float rms, int peak)
         ledBlueSnoring();
         unsigned long now = millis();
         uint8_t streak = noteSnoreEvent(now);
-        bool intervene = streak >= snoreThreshold;
-        Serial.print(">>> SNORING DETECTED  streak=");
-        Serial.print(streak);
-        Serial.print("/");
-        Serial.print(snoreThreshold);
-        Serial.print(" in ");
-        Serial.print(snoreWindowSec);
-        Serial.println("s <<<");
-        Serial.println(">>> RGB LED = BLUE <<<");
-        uint8_t level = snoreLevelFromScore(snoringScore, rms);
-        uint16_t rmsU16 = (uint16_t)constrain((int)rms, 0, 65535);
-        notifyPhone(level, rmsU16, streak, intervene);
-        if (intervene) {
-            notifyPump(level, rmsU16, streak);
-            Serial.print(">>> PUMP ");
-            Serial.print(pumpSeconds);
-            Serial.println(" sec <<<");
-            clearSnoreWindow();
+
+        if (streak == 0xFF) {
+            Serial.println(">>> SNORING ignored (pump / post-pump mute) <<<");
+            Serial.println(">>> RGB LED = BLUE <<<");
+        } else if (streak == 0xFE) {
+            Serial.print(">>> SNORING ignored (min gap ");
+            Serial.print(SNORE_MIN_GAP_MS / 1000UL);
+            Serial.println("s — same long snore) <<<");
+            Serial.println(">>> RGB LED = BLUE <<<");
+        } else {
+            uint8_t level = snoreLevelFromScore(snoringScore, rms);
+            uint16_t rmsU16 = (uint16_t)constrain((int)rms, 0, 65535);
+            Serial.print(">>> SNORING DETECTED  streak=");
+            Serial.print(streak);
+            Serial.print("/");
+            Serial.print(snoreThreshold);
+            Serial.print(" in ");
+            Serial.print(snoreWindowSec);
+            Serial.print("s  elevated=");
+            Serial.print(pillowElevated ? "yes" : "no");
+            Serial.println(" <<<");
+            Serial.println(">>> RGB LED = BLUE <<<");
+
+            if (pillowElevated) {
+                markSnoringWhileElevated(now);
+                notifyPhone(level, rmsU16, streak, false);
+
+                // Still snoring while elevated: short top-up (pump schedules 3s valve after 1 min).
+                bool sent = notifyPumpTopup(level, rmsU16, streak);
+                if (sent) {
+                    Serial.println(">>> ELEVATED TOP-UP 2s <<<");
+                    armActuatorMute(now, (unsigned long)TOPUP_SEC * 1000UL);
+                } else {
+                    notifySnoreActive(level, rmsU16, streak);
+                    Serial.println(">>> ELEVATED snore noted (top-up cooldown/lock) <<<");
+                }
+            } else {
+                bool intervene = streak >= snoreThreshold;
+                notifyPhone(level, rmsU16, streak, intervene);
+                if (intervene) {
+                    bool sent = notifyPumpFull(level, rmsU16, streak);
+                    if (sent) {
+                        Serial.print(">>> FULL PUMP ");
+                        Serial.print(pumpSeconds);
+                        Serial.println(" sec -> elevated <<<");
+                        pillowElevated = true;
+                        quietSinceMs = 0;
+                        armPostPumpMute(now);
+                    } else {
+                        Serial.println(">>> PUMP NOT SENT (lock/cooldown) — keep listening <<<");
+                    }
+                }
+            }
         }
     } else {
         // Keep rolling window; only time expiry removes older snores.
-        refreshSnoreWindow(millis());
+        unsigned long now = millis();
+        refreshSnoreWindow(now);
+        updateElevatedQuietWatch(now, false);
         ledRedNonSnoring();
         Serial.print(">>> NON-SNORING  window streak=");
         Serial.print(snoreStreak);
+        Serial.print(pillowElevated ? "  elevated=yes" : "  elevated=no");
         Serial.println(" <<<");
         Serial.println(">>> RGB LED = RED <<<");
     }
@@ -941,7 +1151,9 @@ void loop()
 
     if (!soundPresent) {
         loudStreak = 0;
-        refreshSnoreWindow(millis());
+        unsigned long now = millis();
+        refreshSnoreWindow(now);
+        updateElevatedQuietWatch(now, false);
         ledWhiteNoSound();
         delay(50);
         return;

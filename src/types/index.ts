@@ -30,6 +30,35 @@ export interface DailyStats {
   severity: 'normal' | 'bad' | 'danger';
 }
 
+/** One hour bucket inside a sleep night (18:00 → next noon). */
+export interface NightHourBucket {
+  hour: number; // 0–23
+  count: number;
+  interventions: number;
+}
+
+/**
+ * Sleep-night summary labeled by wake morning (YYYY-MM-DD).
+ * Events from 18:00 previous day through 11:59 that morning belong together.
+ */
+export interface NightDetail {
+  nightKey: string;
+  label: string;
+  totalSnoreEvents: number;
+  averageDuration: number;
+  interventionCount: number;
+  /** Clock hour (0–23) with the most snores */
+  peakHour: number;
+  /** e.g. "2:00 AM – 3:00 AM" */
+  peakWindowLabel: string;
+  /** Top hours by count (up to 3) */
+  topPeakHours: number[];
+  firstSnoreAt: number | null;
+  lastSnoreAt: number | null;
+  hourly: NightHourBucket[];
+  severity: 'normal' | 'bad' | 'danger';
+}
+
 export interface MonthlyStats {
   month: string; // YYYY-MM format
   totalSnoreEvents: number;

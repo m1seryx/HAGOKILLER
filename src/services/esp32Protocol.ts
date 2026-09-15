@@ -23,6 +23,8 @@ export const ESP32_EVENT_HEARTBEAT = 2;
 export const ESP32_EVENT_STOP = 3;
 /** Planned firmware ESP-NOW: open solenoid to release air. */
 export const ESP32_EVENT_OPEN_VALVE = 4;
+/** Firmware ESP-NOW: snore still active while pillow elevated (no pump). */
+export const ESP32_EVENT_SNORE_ACTIVE = 5;
 export const ESP32_FLAG_INTERVENTION = 0x01;
 export const ESP32_SETTINGS_MAGIC = 0x48475354;
 /** Command packet magic ("HGCM") written to the settings characteristic. */

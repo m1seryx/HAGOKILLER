@@ -7,3 +7,4 @@ export { AnimatedTabScene } from './AnimatedTabScene';
 export { GlassCard } from './GlassCard';
 export { ConfirmModal } from './ConfirmModal';
 export { ProfileAvatar } from './ProfileAvatar';
+export { NightDetailCard } from './NightDetailCard';

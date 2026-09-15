@@ -17,10 +17,13 @@ import {
   calculateTrend,
   calculateInterventionEffectiveness,
   calculateDailySeverity,
+  calculateNightDetail,
+  listRecentNightKeys,
 } from '../utils/statsCalculator';
 import { getSeverityColor, getSeverityLabel, getMoodStatus } from '../utils/recommendations';
 import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
+import { NightDetailCard } from '../components/NightDetailCard';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
@@ -54,6 +57,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     from: moment().subtract(7, 'days').format('YYYY-MM-DD'),
     to: moment().format('YYYY-MM-DD'),
   });
+  const [selectedNightKey, setSelectedNightKey] = useState(moment().format('YYYY-MM-DD'));
 
   const { connected, pairedDevice } = useDevice();
 
@@ -289,6 +293,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const severityColor = getSeverityColor(stats.severity);
   const mood = getMoodStatus(stats.severity);
   const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
+  const nightKeys = listRecentNightKeys(dashboardData.allData, 7);
+  const activeNightKey = nightKeys.includes(selectedNightKey) ? selectedNightKey : nightKeys[0];
+  const nightDetail = calculateNightDetail(dashboardData.allData, activeNightKey);
   const lowBattery = deviceStatus.battery <= 20;
   const activeAlerts = [
     !connected ? (pairedDevice ? 'Pillow disconnected — reconnect in Settings' : 'No pillow paired') : null,
@@ -408,6 +415,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
                   ? 'danger'
                   : 'bad'
             }
+          />
+        </View>
+
+        <View style={styles.sectionPadding}>
+          <NightDetailCard
+            night={nightDetail}
+            nightKeys={nightKeys}
+            selectedKey={activeNightKey}
+            onSelectNight={setSelectedNightKey}
           />
         </View>
 
