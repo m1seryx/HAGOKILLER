@@ -585,11 +585,11 @@ const styles = StyleSheet.create({
   },
   retryButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 15 },
 
-  header: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 8 },
+  header: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 16 },
   headerGlass: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.surface,
     borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.border,
@@ -605,19 +605,19 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   greeting: { fontSize: 24, fontWeight: '800', color: colors.text, marginBottom: 6 },
-  statusRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
+  statusRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
   liveDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   statusLabel: { fontSize: 13, color: colors.textMuted },
   statusValue: { fontSize: 13, fontWeight: '700' },
-  headerSubtitle: { fontSize: 12, color: colors.textMuted },
+  headerSubtitle: { fontSize: 12, lineHeight: 18, color: colors.textMuted },
   profileButton: { alignItems: 'center', justifyContent: 'center' },
 
-  alertBanner: { marginHorizontal: 16, marginBottom: 12, padding: 14 },
+  alertBanner: { marginHorizontal: 16, marginBottom: 16, padding: 14, backgroundColor: '#fffbeb', borderColor: '#fde68a' },
   alertRow: { flexDirection: 'row', alignItems: 'flex-start' },
   alertTitle: { fontSize: 12, fontWeight: '700', color: '#b45309', marginBottom: 2 },
   alertText: { fontSize: 12, color: '#92400e', lineHeight: 18 },
 
-  sectionPadding: { paddingHorizontal: 16, marginBottom: 8 },
+  sectionPadding: { paddingHorizontal: 16, marginBottom: 12 },
   moodSectionLabel: {
     fontSize: 12,
     fontWeight: '700',

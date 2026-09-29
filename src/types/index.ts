@@ -115,6 +115,8 @@ export interface RecommendationData {
   /** Summary based on today's activity check-in */
   activityContext?: string;
   checkInComplete?: boolean;
+  /** Whether the visible advice came from local safety rules or the AI service. */
+  source?: 'rules' | 'ai' | 'on_device';
 }
 
 export interface BLEDevice {

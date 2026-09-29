@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, Dimensions } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { LineChart, BarChart } from 'react-native-chart-kit';
 import { DailyStats } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
@@ -16,6 +16,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
   chartType = 'line',
   title = 'Snoring Pattern',
 }) => {
+  const [chartWidth, setChartWidth] = useState(0);
   const chartData = useMemo(() => {
     const labels = weeklyData.map((d) => {
       const date = new Date(d.date);
@@ -61,7 +62,6 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
     };
   }, [weeklyData]);
 
-  const chartWidth = Dimensions.get('window').width - 48; // Adjusted padding
 
   const commonChartConfig = {
     backgroundColor: colors.chartGradientFrom,
@@ -92,10 +92,10 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
         <Text style={styles.title}>{title}</Text>
       </View>
 
-      <View style={styles.chartWrapper}>
+      <View style={styles.chartWrapper} onLayout={({ nativeEvent }) => setChartWidth(Math.floor(nativeEvent.layout.width))}>
         {weeklyData.length === 0 ? (
           <Text style={styles.emptyChart}>No snore pattern data yet</Text>
-        ) : chartType === 'line' ? (
+        ) : chartWidth <= 0 ? null : chartType === 'line' ? (
           <LineChart
             data={chartData}
             width={chartWidth}
@@ -106,6 +106,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
             withInnerLines={true}
             withOuterLines={true}
             withVerticalLabels={true}
+            fromZero
             bezier
           />
         ) : (
@@ -128,8 +129,7 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
           <View style={[styles.legendColor, { backgroundColor: '#0ea5e9' }]} />
           <Text style={styles.legendLabel}>Snore Events (Count)</Text>
         </View>
-        <View style={styles.legendDivider} />
-        <Text style={styles.legendHelp}>Pulse shows severity spikes</Text>
+
       </View>
     </View>
   );
@@ -162,6 +162,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   title: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '700',
     color: colors.text,

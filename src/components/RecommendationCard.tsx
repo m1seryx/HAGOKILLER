@@ -7,9 +7,15 @@ import { colors } from '../constants/theme';
 
 interface RecommendationCardProps {
   data: RecommendationData;
+  aiStatus?: 'idle' | 'loading' | 'ready' | 'error';
+  aiEnabled?: boolean;
 }
 
-export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) => {
+export const RecommendationCard: React.FC<RecommendationCardProps> = ({
+  data,
+  aiStatus = 'idle',
+  aiEnabled = false,
+}) => {
   const severityColor = getSeverityColor(data.severityLevel);
   const severityIcons: Record<string, string> = {
     normal: 'check-circle',
@@ -32,6 +38,26 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
 
       {/* Main Recommendation Text */}
       <View style={styles.mainRecommendation}>
+        {aiEnabled ? (
+          <View style={styles.aiStatusRow}>
+            <FontAwesome5
+              name={aiStatus === 'ready' ? 'magic' : aiStatus === 'error' ? 'exclamation-circle' : 'circle-notch'}
+              size={11}
+              color={aiStatus === 'error' ? colors.textMuted : colors.accent}
+            />
+            <Text style={styles.aiStatusText}>
+              {aiStatus === 'loading'
+                ? 'Personalizing guidance...'
+                : aiStatus === 'ready'
+                  ? data.source === 'on_device'
+                    ? 'Private on-device AI guidance'
+                    : 'AI-personalized wellness guidance'
+                  : aiStatus === 'error'
+                    ? 'Offline guidance shown'
+                    : 'Personalized guidance available'}
+            </Text>
+          </View>
+        ) : null}
         {data.dailyTip ? (
           <View style={styles.dailyTipBanner}>
             <FontAwesome5 name="lightbulb" size={12} color="#fbbf24" style={{ marginRight: 8 }} />
@@ -50,7 +76,7 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({ data }) 
       {/* Action Items List */}
       {data.actionItems.length > 0 && (
         <View style={styles.actionsContainer}>
-          <Text style={styles.actionsTitle}>Therapeutic Action Items</Text>
+          <Text style={styles.actionsTitle}>Recommended wellness actions</Text>
           {data.actionItems.map((item, index) => (
             <View key={index} style={styles.actionItem}>
               <View style={styles.checkWrapper}>
@@ -141,6 +167,17 @@ const styles = StyleSheet.create({
     backgroundColor: colors.backgroundSoft,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  aiStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginBottom: 10,
+  },
+  aiStatusText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '600',
   },
   dailyTipBanner: {
     flexDirection: 'row',

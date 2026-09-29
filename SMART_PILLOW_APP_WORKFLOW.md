@@ -54,7 +54,10 @@ This document explains the step-by-step workflow of how the HAGOKILLER mobile ap
 
 - The app shows daily and monthly sleep summaries.
 - Users can view detailed logs and understand their sleep patterns.
-- The system may provide recommendations based on the detected severity.
+- The app immediately creates safe, rule-based recommendations from severity, trends, and the daily check-in.
+- For normal or elevated readings, an optional llama.cpp model running directly on the phone can personalize low-risk wellness actions from selected activities and the “What did you do today?” note. Assessment data and free-text notes remain on the device.
+- If the on-device model is unavailable or cannot generate guidance, the rule-based recommendations remain visible.
+- Critical readings never depend on an LLM; the app keeps deterministic advice to seek professional evaluation and follow conservative safety actions.
 
 ## 10. Ongoing Monitoring
 
@@ -71,3 +74,14 @@ The smart pillow app works as a closed-loop system:
 3. It triggers intervention when needed.
 4. It logs and displays sleep data.
 5. It helps the user track and improve their sleep experience.
+
+## On-device AI assessment setup
+
+The installed Android or iOS application runs llama.cpp through the native `llama.rn` module. Expo Go cannot load this native module.
+
+1. Build an installed native application with `eas build --platform android --profile preview`.
+2. Install the resulting APK on a 64-bit Android device.
+3. Open Assessment and select **Download AI model** while connected to Wi-Fi. The current Q4 model is approximately 563 MB.
+4. After the one-time download, the model is kept in the app's private storage and assessment generation works without a computer or internet connection.
+
+The app processes the free-text check-in note locally, constrains model output to a JSON schema, validates it, and keeps deterministic clinician-directed guidance for critical readings. Nothing is uploaded for on-device inference. Uninstalling the app or clearing its storage removes the downloaded model.

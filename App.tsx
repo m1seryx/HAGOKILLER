@@ -4,7 +4,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
 import { FontAwesome5 } from '@expo/vector-icons';
 
@@ -69,18 +69,24 @@ const TabIcon = ({
   </View>
 );
 
-const MainTabs = () => (
+const MainTabs = () => {
+  const insets = useSafeAreaInsets();
+  return (
   <Tab.Navigator
     screenOptions={{
       headerShown: false,
       lazy: true,
-      tabBarShowLabel: false,
+      tabBarShowLabel: true,
+      tabBarLabelPosition: 'below-icon',
+      tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 3 },
       tabBarHideOnKeyboard: true,
       tabBarStyle: {
         backgroundColor: colors.tabBar,
         borderTopColor: colors.tabBarBorder,
         borderTopWidth: StyleSheet.hairlineWidth,
-        paddingTop: 8,
+        height: 68 + insets.bottom,
+        paddingBottom: Math.max(insets.bottom, 8),
+        paddingTop: 6,
         paddingHorizontal: 10,
         elevation: 0,
         shadowOpacity: 0,
@@ -96,6 +102,7 @@ const MainTabs = () => (
       name="DashboardTab"
       component={DashboardTabScreen}
       options={{
+        title: "Overview",
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="chart-pie" color={color} focused={focused} />
         ),
@@ -105,6 +112,7 @@ const MainTabs = () => (
       name="LogsTab"
       component={LogsTabScreen}
       options={{
+        title: "Logs",
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="clipboard-list" color={color} focused={focused} />
         ),
@@ -114,6 +122,7 @@ const MainTabs = () => (
       name="AssessmentTab"
       component={AssessmentTabScreen}
       options={{
+        title: "Assessment",
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="stethoscope" color={color} focused={focused} />
         ),
@@ -123,13 +132,15 @@ const MainTabs = () => (
       name="SettingsTab"
       component={SettingsTabScreen}
       options={{
+        title: "Settings",
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="cog" color={color} focused={focused} />
         ),
       }}
     />
   </Tab.Navigator>
-);
+  );
+};
 
 const SnoreAlertHost = () => {
   useEffect(() => {
@@ -254,7 +265,7 @@ export default function App() {
       <DeviceProvider>
       <SnoreAlertHost />
       <UserContext.Provider value={userValue}>
-        <View style={styles.container}>
+        <View style={[styles.container, styles.appFrame]}>
           <NavigationContainer theme={MyTheme}>
             <Stack.Navigator screenOptions={{ headerShown: false, animation: Platform.OS === 'web' ? 'none' : 'fade' }}>
 
@@ -304,6 +315,7 @@ const styles = StyleSheet.create({
       default: {},
     }),
   },
+  appFrame: { width: '100%', maxWidth: 960, alignSelf: 'center' },
   crash: {
     flex: 1,
     backgroundColor: colors.background,

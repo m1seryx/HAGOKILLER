@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import moment from 'moment';
 import { colors } from '../constants/theme';
@@ -45,6 +45,8 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
         {filters.map((filter) => (
           <TouchableOpacity
             key={filter.value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeFilter === filter.value }}
             style={[
               styles.filterButton, 
               activeFilter === filter.value && styles.filterButtonActive
@@ -159,21 +161,22 @@ const styles = StyleSheet.create({
   },
   segmentedContainer: {
     flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: colors.backgroundMuted,
     borderRadius: 12,
     padding: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: colors.border,
   },
   filterButton: {
     flex: 1,
+    minHeight: 44,
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
   },
   filterButtonActive: {
-    backgroundColor: '#0ea5e9',
+    backgroundColor: colors.accent,
     shadowColor: '#0ea5e9',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -199,11 +202,13 @@ const styles = StyleSheet.create({
   },
   rangeRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'flex-end',
     gap: 8,
   },
   rangeField: {
     flex: 1,
+    minWidth: 130,
   },
   rangeLabel: {
     fontSize: 10,
@@ -222,7 +227,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    minHeight: 36,
+    minHeight: 44,
   },
   applyButton: {
     flexDirection: 'row',
@@ -230,7 +235,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    height: 36,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -245,7 +250,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center', 
     paddingHorizontal: 32,
   },
-  modalMenu: { 
+  modalMenu: {
+    width: '100%',
+    maxWidth: 400,
+    alignSelf: 'center',
     backgroundColor: colors.surface, 
     borderRadius: 14, 
     overflow: 'hidden', 
@@ -283,7 +291,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   weekdayText: { 
-    width: 32, 
+    width: '14.285714%',
     textAlign: 'center', 
     color: colors.textMuted, 
     fontSize: 12,
@@ -296,11 +304,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   dayCell: { 
-    width: 32, 
+    width: '14.285714%',
     height: 36, 
     justifyContent: 'center', 
     alignItems: 'center', 
-    margin: 2, 
+    marginVertical: 2,
     borderRadius: 6,
   },
   dayCellText: { 

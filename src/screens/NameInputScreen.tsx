@@ -328,11 +328,11 @@ const modalStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: colors.background },
   container: { flex: 1, backgroundColor: colors.background },
-  scrollContent: { flexGrow: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 16 },
+  scrollContent: { flexGrow: 1, justifyContent: "center", width: "100%", maxWidth: 560, alignSelf: "center", paddingHorizontal: 16, paddingVertical: 24 },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 24,
-    padding: 32,
+    padding: 24,
     alignItems: "center",
     borderWidth: 1,
     borderColor: "rgba(14, 165, 233, 0.2)",

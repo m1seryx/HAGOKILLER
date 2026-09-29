@@ -4,5 +4,8 @@ ios/
 firmware/
 dataset/
 .expo/
+.env
+.env.*
+!.env.example
 *.zip
 *.tgz

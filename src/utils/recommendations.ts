@@ -256,6 +256,7 @@ export const getRecommendations = (
     dailyTip,
     activityContext: contextParts.length > 0 ? contextParts.join(' ') : undefined,
     checkInComplete: !!checkIn,
+    source: 'rules',
   };
 };
 

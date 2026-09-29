@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -13,6 +15,7 @@ import moment from 'moment';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { GlassCard } from '../components/GlassCard';
 import { RecommendationCard } from '../components/RecommendationCard';
+import { OnDeviceAiCard, OnDeviceModelStatus } from '../components/OnDeviceAiCard';
 import {
   AssessmentQuestionnaire,
   ActivityCheckInPayload,
@@ -24,8 +27,14 @@ import {
   saveDailyActivityCheckIn,
 } from '../services/userStorage';
 import { getRecommendations } from '../utils/recommendations';
+import {
+  downloadOnDeviceModel,
+  isOnDeviceAiSupported,
+  isOnDeviceModelDownloaded,
+  requestOnDeviceAssessmentAdvice,
+} from '../services/onDeviceAssessment';
 import { colors } from '../constants/theme';
-import { DailyActivityCheckIn, DailyStats, MonthlyStats } from '../types';
+import { DailyActivityCheckIn, DailyStats, MonthlyStats, RecommendationData } from '../types';
 
 export const AssessmentScreen = () => {
   const [loading, setLoading] = useState(true);
@@ -33,6 +42,11 @@ export const AssessmentScreen = () => {
   const [today, setToday] = useState<DailyStats | null>(null);
   const [month, setMonth] = useState<MonthlyStats | null>(null);
   const [checkIn, setCheckIn] = useState<DailyActivityCheckIn | null>(null);
+  const [aiRecommendation, setAiRecommendation] = useState<RecommendationData | null>(null);
+  const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [modelStatus, setModelStatus] = useState<OnDeviceModelStatus>('checking');
+  const [modelProgress, setModelProgress] = useState(0);
+  const [modelError, setModelError] = useState('');
   const todayDate = moment().format('YYYY-MM-DD');
 
   const load = useCallback(async () => {
@@ -75,6 +89,71 @@ export const AssessmentScreen = () => {
     setCheckIn(next);
   };
 
+  const fallbackRecommendations = useMemo(
+    () => (today && month
+      ? getRecommendations(today, month, month.trend, checkIn, todayDate)
+      : null),
+    [today, month, checkIn, todayDate],
+  );
+
+  useEffect(() => {
+    if (!isOnDeviceAiSupported()) {
+      setModelStatus('unsupported');
+      return undefined;
+    }
+    let active = true;
+    isOnDeviceModelDownloaded()
+      .then((downloaded) => {
+        if (active) setModelStatus(downloaded ? 'ready' : 'missing');
+      })
+      .catch(() => {
+        if (active) {
+          setModelStatus('error');
+          setModelError('Could not check the phone storage. Use an installed development or preview build.');
+        }
+      });
+    return () => { active = false; };
+  }, []);
+
+  const handleDownloadModel = async () => {
+    setModelStatus('downloading');
+    setModelProgress(0);
+    setModelError('');
+    try {
+      await downloadOnDeviceModel(setModelProgress);
+      setModelStatus('ready');
+    } catch (error) {
+      setModelStatus('error');
+      setModelError(error instanceof Error ? error.message : 'Could not download the AI model.');
+    }
+  };
+
+  useEffect(() => {
+    setAiRecommendation(null);
+    if (!today || !month || !fallbackRecommendations || modelStatus !== 'ready') {
+      setAiStatus('idle');
+      return undefined;
+    }
+    if (today.severity === 'danger') {
+      setAiStatus('idle');
+      return undefined;
+    }
+
+    let active = true;
+    setAiStatus('loading');
+    requestOnDeviceAssessmentAdvice(today, month, checkIn, fallbackRecommendations)
+      .then((advice) => {
+        if (active) {
+          setAiRecommendation(advice);
+          setAiStatus('ready');
+        }
+      })
+      .catch(() => {
+        if (active) setAiStatus('error');
+      });
+    return () => { active = false; };
+  }, [today, month, checkIn, fallbackRecommendations, modelStatus]);
+
   if (loading || !today || !month) {
     return (
       <SafeAreaView style={styles.loadingContainer} edges={['top', 'left', 'right']}>
@@ -84,17 +163,14 @@ export const AssessmentScreen = () => {
     );
   }
 
-  const recommendations = getRecommendations(
-    today,
-    month,
-    month.trend,
-    checkIn,
-    todayDate,
-  );
+  const recommendations = aiRecommendation ?? fallbackRecommendations;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         contentContainerStyle={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
@@ -103,14 +179,22 @@ export const AssessmentScreen = () => {
       >
         <Text style={styles.title}>Assessment</Text>
         <Text style={styles.subtitle}>
-          Write what you did today. Keyword matching personalizes the tips below.
+          Check in with your daily habits for more personal sleep tips.
         </Text>
 
         <AssessmentQuestionnaire
+          key={todayDate}
           initialActivities={checkIn?.activities ?? []}
           initialOtherNote={checkIn?.otherActivityNote ?? ''}
           savedForToday={!!checkIn}
           onSave={handleSaveCheckIn}
+        />
+
+        <OnDeviceAiCard
+          status={modelStatus}
+          progress={modelProgress}
+          error={modelError}
+          onDownload={handleDownloadModel}
         />
 
         <GlassCard style={styles.hintCard}>
@@ -122,8 +206,13 @@ export const AssessmentScreen = () => {
           </View>
         </GlassCard>
 
-        <RecommendationCard data={recommendations} />
+        <RecommendationCard
+          data={recommendations!}
+          aiStatus={aiStatus}
+          aiEnabled={modelStatus === 'ready' && today.severity !== 'danger'}
+        />
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };

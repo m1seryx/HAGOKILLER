@@ -37,7 +37,7 @@ export const StatsCard: React.FC<StatsCardProps> = ({
         ]}>
           <FontAwesome5 name={icon} size={15} color={severityColor} />
         </View>
-        <Text style={styles.label} numberOfLines={1} adjustsFontSizeToFit>
+        <Text style={styles.label} numberOfLines={2}>
           {label}
         </Text>
       </View>
@@ -63,7 +63,8 @@ export const StatsCard: React.FC<StatsCardProps> = ({
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    minWidth: '47%', // Allows side-by-side grid layout
+    flexBasis: '44%',
+    minWidth: 130,
     margin: 4,
     backgroundColor: colors.surface,
     borderRadius: 16,
@@ -74,9 +75,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.04,
     shadowRadius: 6,
-    elevation: 4,
+    elevation: 1,
   },
   glowBar: {
     position: 'absolute',
@@ -100,11 +101,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   label: {
-    fontSize: 11,
+    fontSize: 12,
+    lineHeight: 17,
     color: colors.textMuted,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
+    minHeight: 34,
     flex: 1,
   },
   content: {
@@ -115,7 +116,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   value: {
-    fontSize: 22,
+    fontSize: 28,
     fontWeight: '800',
     color: colors.text,
     letterSpacing: -0.5,
