@@ -33,6 +33,12 @@ import {
   isOnDeviceModelDownloaded,
   requestOnDeviceAssessmentAdvice,
 } from '../services/onDeviceAssessment';
+import {
+  completeModelDownloadNotification,
+  failModelDownloadNotification,
+  startModelDownloadNotification,
+  updateModelDownloadNotification,
+} from '../services/modelDownloadNotifications';
 import { colors } from '../constants/theme';
 import { DailyActivityCheckIn, DailyStats, MonthlyStats, RecommendationData } from '../types';
 
@@ -120,11 +126,17 @@ export const AssessmentScreen = () => {
     setModelProgress(0);
     setModelError('');
     try {
-      await downloadOnDeviceModel(setModelProgress);
+      await startModelDownloadNotification();
+      await downloadOnDeviceModel((progress) => {
+        setModelProgress(progress);
+        updateModelDownloadNotification(progress);
+      });
       setModelStatus('ready');
+      await completeModelDownloadNotification();
     } catch (error) {
       setModelStatus('error');
       setModelError(error instanceof Error ? error.message : 'Could not download the AI model.');
+      await failModelDownloadNotification();
     }
   };
 
@@ -210,6 +222,7 @@ export const AssessmentScreen = () => {
           data={recommendations!}
           aiStatus={aiStatus}
           aiEnabled={modelStatus === 'ready' && today.severity !== 'danger'}
+          personalizedActionsOnly
         />
       </ScrollView>
       </KeyboardAvoidingView>

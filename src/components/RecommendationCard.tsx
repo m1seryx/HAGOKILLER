@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, Text, StyleSheet } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { RecommendationData } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
@@ -9,14 +9,20 @@ interface RecommendationCardProps {
   data: RecommendationData;
   aiStatus?: 'idle' | 'loading' | 'ready' | 'error';
   aiEnabled?: boolean;
+  personalizedActionsOnly?: boolean;
 }
 
 export const RecommendationCard: React.FC<RecommendationCardProps> = ({
   data,
   aiStatus = 'idle',
   aiEnabled = false,
+  personalizedActionsOnly = false,
 }) => {
   const severityColor = getSeverityColor(data.severityLevel);
+  const hasGeneratedActions = data.source === 'on_device' || data.source === 'ai';
+  const showActions = data.actionItems.length > 0 && (
+    !personalizedActionsOnly || hasGeneratedActions || data.severityLevel === 'danger'
+  );
   const severityIcons: Record<string, string> = {
     normal: 'check-circle',
     bad: 'exclamation-circle',
@@ -64,8 +70,11 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
             <Text style={styles.dailyTipText}>Today's tip: {data.dailyTip}</Text>
           </View>
         ) : null}
-        {data.activityContext ? (
-          <Text style={styles.activityContext}>{data.activityContext}</Text>
+        {data.progressMessage ? (
+          <View style={styles.progressBanner}>
+            <FontAwesome5 name="chart-line" size={12} color="#047857" style={{ marginRight: 8 }} />
+            <Text style={styles.progressText}>{data.progressMessage}</Text>
+          </View>
         ) : null}
         <Text style={styles.mainText}>{data.recommendation}</Text>
         <Text style={[styles.mainText, { marginTop: 8, fontStyle: 'italic', color: '#333333', fontSize: 11 }]}>
@@ -74,9 +83,11 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
       </View>
 
       {/* Action Items List */}
-      {data.actionItems.length > 0 && (
+      {showActions && (
         <View style={styles.actionsContainer}>
-          <Text style={styles.actionsTitle}>Recommended wellness actions</Text>
+          <Text style={styles.actionsTitle}>
+            {data.severityLevel === 'danger' ? 'Safety actions' : 'Therapeutic wellness actions'}
+          </Text>
           {data.actionItems.map((item, index) => (
             <View key={index} style={styles.actionItem}>
               <View style={styles.checkWrapper}>
@@ -87,6 +98,30 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
           ))}
         </View>
       )}
+
+      {personalizedActionsOnly && !showActions && data.severityLevel !== 'danger' ? (
+        <View style={styles.actionsContainer}>
+          <Text style={styles.actionsTitle}>Therapeutic wellness actions</Text>
+          <View style={styles.pendingActions}>
+            {aiStatus === 'loading' ? (
+              <ActivityIndicator size="small" color={colors.accent} />
+            ) : (
+              <FontAwesome5
+                name={aiStatus === 'error' ? 'exclamation-circle' : 'microchip'}
+                size={14}
+                color={colors.textMuted}
+              />
+            )}
+            <Text style={styles.pendingActionsText}>
+              {aiStatus === 'loading'
+                ? 'Generating personalized actions from your daily check-in...'
+                : aiStatus === 'error'
+                  ? 'The on-device model could not generate actions. Please try the assessment again.'
+                  : 'Download the on-device AI model above to generate personalized actions.'}
+            </Text>
+          </View>
+        </View>
+      ) : null}
 
       {/* Warning Alert Panel */}
       {data.severityLevel === 'danger' && (
@@ -193,12 +228,20 @@ const styles = StyleSheet.create({
     color: '#b45309',
     lineHeight: 17,
   },
-  activityContext: {
+  progressBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  progressText: {
+    flex: 1,
+    color: '#047857',
     fontSize: 12,
-    color: colors.accent,
     lineHeight: 17,
-    marginBottom: 8,
-    fontStyle: 'italic',
+    fontWeight: '600',
   },
   mainText: {
     fontSize: 13,
@@ -237,6 +280,17 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  pendingActions: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  pendingActionsText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 12,
     lineHeight: 18,
   },
   warningBanner: {

@@ -114,6 +114,8 @@ export interface RecommendationData {
   dailyTip?: string;
   /** Summary based on today's activity check-in */
   activityContext?: string;
+  /** Positive reinforcement grounded in an improving measured trend. */
+  progressMessage?: string;
   checkInComplete?: boolean;
   /** Whether the visible advice came from local safety rules or the AI service. */
   source?: 'rules' | 'ai' | 'on_device';
