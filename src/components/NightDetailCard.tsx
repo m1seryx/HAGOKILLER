@@ -5,13 +5,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BarChart } from 'react-native-chart-kit';
 import moment from 'moment';
 import { NightDetail } from '../types';
-import { colors } from '../constants/theme';
 import { getSeverityColor } from '../utils/recommendations';
 import { formatPeakWindow, getNightLabel } from '../utils/statsCalculator';
 
@@ -28,6 +27,7 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
   selectedKey,
   onSelectNight,
 }) => {
+  const { width } = useWindowDimensions();
   const severityColor = getSeverityColor(night.severity);
 
   const visibleHours = useMemo(
@@ -35,7 +35,7 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
     [night.hourly],
   );
 
-  const chartWidth = Dimensions.get('window').width - 64;
+  const chartWidth = Math.min(width - 28, 560);
 
   const chartData = useMemo(() => {
     const labels = visibleHours.map((h) => moment().hour(h.hour).minute(0).format('ha'));
@@ -69,16 +69,16 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
   }, [visibleHours, night.peakHour, severityColor]);
 
   const chartConfig = {
-    backgroundColor: colors.chartGradientFrom,
-    backgroundGradientFrom: colors.chartGradientFrom,
-    backgroundGradientTo: colors.chartGradientTo,
+    backgroundColor: '#0b1834',
+    backgroundGradientFrom: '#0b1834',
+    backgroundGradientTo: '#132b52',
     decimalPlaces: 0,
     color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(100, 116, 139, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(203, 225, 255, ${opacity})`,
     barPercentage: 0.65,
     propsForBackgroundLines: {
       strokeDasharray: '4',
-      stroke: 'rgba(15, 23, 42, 0.08)',
+      stroke: 'rgba(191, 219, 254, 0.14)',
     },
     style: { borderRadius: 16 },
   };
@@ -88,7 +88,7 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
       <View style={styles.header}>
         <View style={styles.titleRow}>
           <View style={styles.titleIndicator} />
-          <Text style={styles.title}>Night detail</Text>
+          <Text style={styles.title}>Night Detail</Text>
         </View>
         <Text style={styles.subtitle}>Peak snore times for this sleep night</Text>
       </View>
@@ -114,29 +114,31 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
         })}
       </ScrollView>
 
+      <View style={[styles.peakCard, { borderColor: `${severityColor}55` }]}>
+        <View style={[styles.peakIcon, { backgroundColor: `${severityColor}22` }]}>
+          <FontAwesome5 name="clock" size={16} color={severityColor} />
+        </View>
+        <View style={styles.peakCopy}>
+          <Text style={styles.peakEyebrow}>Peak snoring time</Text>
+          <Text style={[styles.peakValue, { color: severityColor }]}>
+            {night.totalSnoreEvents > 0 ? night.peakWindowLabel : 'No peak recorded'}
+          </Text>
+          <Text style={styles.peakMeta}>
+            {night.totalSnoreEvents > 0
+              ? `${night.hourly.find((h) => h.hour === night.peakHour)?.count ?? 0} events occurred during this hour`
+              : 'A peak time will appear after the pillow records a snoring event.'}
+          </Text>
+        </View>
+      </View>
+
       {night.totalSnoreEvents === 0 ? (
         <View style={styles.emptyWrap}>
-          <FontAwesome5 name="moon" size={18} color={colors.textMuted} />
+          <FontAwesome5 name="moon" size={18} color="#7dd3fc" />
           <Text style={styles.emptyTitle}>No snoring recorded</Text>
           <Text style={styles.emptyHint}>This night has no logged snore events yet.</Text>
         </View>
       ) : (
         <>
-          <View style={[styles.peakCard, { borderColor: `${severityColor}55` }]}>
-            <View style={[styles.peakIcon, { backgroundColor: `${severityColor}22` }]}>
-              <FontAwesome5 name="clock" size={16} color={severityColor} />
-            </View>
-            <View style={styles.peakCopy}>
-              <Text style={styles.peakEyebrow}>Peak snoring time</Text>
-              <Text style={[styles.peakValue, { color: severityColor }]}>
-                {night.peakWindowLabel}
-              </Text>
-              <Text style={styles.peakMeta}>
-                {night.hourly.find((h) => h.hour === night.peakHour)?.count ?? 0} events in this hour
-              </Text>
-            </View>
-          </View>
-
           {night.topPeakHours.length > 1 ? (
             <View style={styles.topPeaksRow}>
               {night.topPeakHours.map((hour, index) => {
@@ -172,7 +174,7 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
 
           <View style={styles.legend}>
             <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: colors.accent }]} />
+              <View style={[styles.legendColor, { backgroundColor: '#38bdf8' }]} />
               <Text style={styles.legendLabel}>Hourly snores</Text>
             </View>
             <View style={styles.legendDivider} />
@@ -213,63 +215,56 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+    paddingVertical: 8,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
   },
   header: { marginBottom: 12 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   titleIndicator: {
     width: 4,
     height: 14,
-    backgroundColor: colors.accent,
+    backgroundColor: '#38bdf8',
     borderRadius: 2,
   },
   title: {
     fontSize: 14,
     fontWeight: '700',
-    color: colors.text,
+    color: '#eef7ff',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
-  subtitle: { fontSize: 12, color: colors.textMuted },
+  subtitle: { fontSize: 12, color: '#a9bfdf' },
   nightChips: { gap: 8, paddingBottom: 12 },
   chip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 12,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: '#15294c',
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: '#294a78',
   },
   chipActive: {
-    backgroundColor: colors.accentSoft,
-    borderColor: colors.accent,
+    backgroundColor: '#123d68',
+    borderColor: '#38bdf8',
   },
-  chipText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
-  chipTextActive: { color: colors.accentDark },
+  chipText: { fontSize: 12, fontWeight: '600', color: '#a9bfdf' },
+  chipTextActive: { color: '#e0f2fe' },
   emptyWrap: {
     alignItems: 'center',
     paddingVertical: 28,
     gap: 8,
   },
-  emptyTitle: { fontSize: 14, fontWeight: '700', color: colors.text },
-  emptyHint: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  emptyTitle: { fontSize: 14, fontWeight: '700', color: '#eef7ff' },
+  emptyHint: { fontSize: 12, color: '#a9bfdf', textAlign: 'center' },
   peakCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     padding: 14,
     borderRadius: 14,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: '#132747',
     borderWidth: 1,
     marginBottom: 12,
   },
@@ -284,13 +279,13 @@ const styles = StyleSheet.create({
   peakEyebrow: {
     fontSize: 11,
     fontWeight: '600',
-    color: colors.textMuted,
+    color: '#a9bfdf',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 2,
   },
   peakValue: { fontSize: 18, fontWeight: '800' },
-  peakMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  peakMeta: { fontSize: 12, color: '#a9bfdf', marginTop: 2 },
   topPeaksRow: { gap: 8, marginBottom: 14 },
   topPeakPill: {
     flexDirection: 'row',
@@ -299,15 +294,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 10,
-    backgroundColor: colors.backgroundSoft,
+    backgroundColor: '#102342',
   },
-  topPeakRank: { fontSize: 11, fontWeight: '800', color: colors.accentDark, width: 22 },
-  topPeakTime: { flex: 1, fontSize: 12, fontWeight: '600', color: colors.text },
-  topPeakCount: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
+  topPeakRank: { fontSize: 11, fontWeight: '800', color: '#7dd3fc', width: 22 },
+  topPeakTime: { flex: 1, fontSize: 12, fontWeight: '600', color: '#eef7ff' },
+  topPeakCount: { fontSize: 12, fontWeight: '700', color: '#a9bfdf' },
   timelineLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: colors.textMuted,
+    color: '#a9bfdf',
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -316,7 +311,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: colors.chartGradientFrom,
+    backgroundColor: '#0b1834',
   },
   chart: {
     marginVertical: 4,
@@ -332,24 +327,24 @@ const styles = StyleSheet.create({
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendColor: { width: 8, height: 8, borderRadius: 4 },
-  legendLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
-  legendDivider: { width: 1, height: 10, backgroundColor: colors.border },
+  legendLabel: { fontSize: 11, color: '#a9bfdf', fontWeight: '500' },
+  legendDivider: { width: 1, height: 10, backgroundColor: '#294a78' },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: '#294a78',
   },
   statItem: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 16, fontWeight: '800', color: colors.text },
-  statLabel: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  statDivider: { width: 1, height: 28, backgroundColor: colors.border },
+  statValue: { fontSize: 16, fontWeight: '800', color: '#eef7ff' },
+  statLabel: { fontSize: 11, color: '#a9bfdf', marginTop: 2 },
+  statDivider: { width: 1, height: 28, backgroundColor: '#294a78' },
   spanText: {
     marginTop: 10,
     fontSize: 11,
-    color: colors.textMuted,
+    color: '#a9bfdf',
     textAlign: 'center',
   },
 });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, StyleProp, ViewStyle } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { getSeverityColor, getSeverityLabel } from '../utils/recommendations';
 import { colors } from '../constants/theme';
@@ -10,10 +10,11 @@ interface StatsCardProps {
   icon?: string;
   severity?: 'normal' | 'bad' | 'danger';
   unit?: string;
+  style?: StyleProp<ViewStyle>;
 }
 
 export const StatsCard: React.FC<StatsCardProps> = ({
-  label, value, icon = 'chart-bar', severity, unit = '',
+  label, value, icon = 'chart-bar', severity, unit = '', style,
 }) => {
   const isSeverity = !!severity;
   const severityColor = severity ? getSeverityColor(severity) : '#0ea5e9';
@@ -25,7 +26,8 @@ export const StatsCard: React.FC<StatsCardProps> = ({
       isSeverity && {
         borderColor: severityColor + '40',
         borderWidth: 1.5,
-      }
+      },
+      style,
     ]}>
       {/* Dynamic top-left color bar for visual cue */}
       <View style={[styles.glowBar, { backgroundColor: severityColor }]} />

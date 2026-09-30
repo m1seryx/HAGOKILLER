@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import moment from 'moment';
@@ -17,13 +19,10 @@ import {
   calculateTrend,
   calculateInterventionEffectiveness,
   calculateDailySeverity,
-  calculateNightDetail,
-  listRecentNightKeys,
 } from '../utils/statsCalculator';
 import { getSeverityColor, getSeverityLabel, getMoodStatus } from '../utils/recommendations';
 import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
-import { NightDetailCard } from '../components/NightDetailCard';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
@@ -39,7 +38,20 @@ interface DashboardScreenProps {
   userProfile?: UserProfile;
 }
 
+const HAGOSAUR_MOOD_ART = {
+  normal: require('../../assets/hagosaur-mood-happy.png'),
+  bad: require('../../assets/hagosaur-mood-uneasy.png'),
+  danger: require('../../assets/hagosaur-mood-unhappy.png'),
+} as const;
+
+const HAGOSAUR_CONNECTION_ART = {
+  connected: require('../../assets/hagosaur-pillow-connected.png'),
+  disconnected: require('../../assets/hagosaur-pillow-disconnected.png'),
+} as const;
+
 export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, userProfile }) => {
+  const { width } = useWindowDimensions();
+  const compact = width < 380;
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,7 +69,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     from: moment().subtract(7, 'days').format('YYYY-MM-DD'),
     to: moment().format('YYYY-MM-DD'),
   });
-  const [selectedNightKey, setSelectedNightKey] = useState(moment().format('YYYY-MM-DD'));
 
   const { connected, pairedDevice } = useDevice();
 
@@ -293,12 +304,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const severityColor = getSeverityColor(stats.severity);
   const mood = getMoodStatus(stats.severity);
   const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
-  const nightKeys = listRecentNightKeys(dashboardData.allData, 7);
-  const activeNightKey = nightKeys.includes(selectedNightKey) ? selectedNightKey : nightKeys[0];
-  const nightDetail = calculateNightDetail(dashboardData.allData, activeNightKey);
   const lowBattery = deviceStatus.battery <= 20;
   const activeAlerts = [
-    !connected ? (pairedDevice ? 'Pillow disconnected — reconnect in Settings' : 'No pillow paired') : null,
     connected && lowBattery ? 'Low battery detected' : null,
     stats.severity === 'danger' ? 'Elevated snoring risk detected' : null,
   ].filter(Boolean) as string[];
@@ -306,31 +313,19 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0ea5e9" />
         }
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.pageColumn}>
         <View style={styles.header}>
-          <View style={styles.headerGlass}>
+          <View style={styles.headerTopRow}>
             <View style={styles.headerContent}>
               <Text style={styles.brand}>HAGOKILLER</Text>
               <Text style={styles.greeting}>Hello, {userName}</Text>
-              <View style={styles.statusRow}>
-                <View style={[styles.liveDot, { backgroundColor: severityColor }]} />
-                <Text style={styles.statusLabel}>Snoring Status — </Text>
-                <Text style={[styles.statusValue, { color: severityColor }]}>
-                  {getSeverityLabel(stats.severity)}
-                </Text>
-              </View>
-              <Text style={styles.headerSubtitle}>
-                {moment().format('dddd, MMMM D, YYYY')} ·{' '}
-                {connected
-                  ? `Linked to ${pairedDevice?.name || 'pillow'}`
-                  : pairedDevice
-                    ? 'Pillow offline'
-                    : 'No device paired'}
-              </Text>
+              <Text style={styles.headerSubtitle}>{moment().format('dddd, MMMM D, YYYY')}</Text>
             </View>
             <View style={styles.profileButton}>
               <ProfileAvatar
@@ -341,7 +336,80 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
               />
             </View>
           </View>
+
+          <View style={[styles.headerGlass, compact && styles.headerGlassCompact]}>
+            <Image
+              source={HAGOSAUR_MOOD_ART[stats.severity]}
+              style={[styles.snapshotHagosaur, compact && styles.snapshotHagosaurCompact]}
+              resizeMode="contain"
+              accessibilityLabel={`Hagosaur feeling ${mood.label.toLowerCase()}`}
+            />
+            <View style={styles.overviewCopy}>
+              <Text style={styles.overviewEyebrow}>YOUR SLEEP SNAPSHOT</Text>
+              <Text style={[styles.moodLabel, { color: mood.color }]}>{mood.label}</Text>
+              <Text style={styles.moodCaption}>{mood.caption}</Text>
+              <View style={styles.connectionRow}>
+                <View style={[styles.liveDot, { backgroundColor: connected ? '#10b981' : '#f59e0b' }]} />
+                <Text style={styles.connectionText} numberOfLines={1}>
+                  {connected
+                    ? `${pairedDevice?.name || 'Smart pillow'} connected`
+                    : pairedDevice
+                      ? 'Smart pillow offline'
+                      : 'No smart pillow paired'}
+                </Text>
+                <Text style={[styles.severityTextInline, { color: severityColor }]}>
+                  {getSeverityLabel(stats.severity)}
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
+
+        <GlassCard
+          style={[
+            styles.connectionBanner,
+            connected ? styles.connectionBannerOnline : styles.connectionBannerOffline,
+          ]}
+        >
+          <Image
+            source={connected ? HAGOSAUR_CONNECTION_ART.connected : HAGOSAUR_CONNECTION_ART.disconnected}
+            style={styles.connectionHagosaur}
+            resizeMode="contain"
+            accessibilityLabel={connected
+              ? 'Hagosaur showing a connected smart pillow cable'
+              : 'Hagosaur preparing to connect the smart pillow cable'}
+          />
+          <View style={styles.connectionBannerCopy}>
+            <Text style={styles.connectionEyebrow}>HAGOSAUR CONNECTION CHECK</Text>
+            <Text style={styles.connectionTitle}>
+              {connected
+                ? 'Smart pillow connected'
+                : pairedDevice
+                  ? 'Reconnect your smart pillow'
+                  : 'Connect your smart pillow'}
+            </Text>
+            <Text style={styles.connectionCaption}>
+              {connected
+                ? 'The cord is connected and Hagosaur is ready to monitor your sleep.'
+                : pairedDevice
+                  ? 'Your pillow is paired but currently offline. Reconnect it in Settings.'
+                  : 'Pair your pillow in Settings so Hagosaur can begin tracking tonight.'}
+            </Text>
+            <View style={styles.connectionStateRow}>
+              <FontAwesome5
+                name={connected ? 'link' : 'unlink'}
+                size={10}
+                color={connected ? '#047857' : '#b45309'}
+              />
+              <Text style={[
+                styles.connectionStateText,
+                { color: connected ? '#047857' : '#b45309' },
+              ]}>
+                {connected ? 'CONNECTED' : pairedDevice ? 'OFFLINE' : 'NOT PAIRED'}
+              </Text>
+            </View>
+          </View>
+        </GlassCard>
 
         {activeAlerts.length > 0 ? (
           <GlassCard style={styles.alertBanner}>
@@ -361,28 +429,17 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         ) : null}
 
         <View style={styles.sectionPadding}>
-          <Text style={styles.moodSectionLabel}>Mood status</Text>
-          <GlassCard style={[styles.moodCard, { backgroundColor: mood.background, borderColor: mood.color }]}>
-            <View style={[styles.moodIconWrap, { backgroundColor: `${mood.color}22` }]}>
-              <FontAwesome5 name={mood.icon as any} size={22} color={mood.color} solid />
-            </View>
-            <View style={styles.moodCopy}>
-              <Text style={[styles.moodLabel, { color: mood.color }]}>{mood.label}</Text>
-              <Text style={styles.moodCaption}>{mood.caption}</Text>
-              <Text style={styles.moodMeta}>
-                Based on {getSeverityLabel(stats.severity).toLowerCase()} snoring status
-              </Text>
-            </View>
-          </GlassCard>
-        </View>
-
-        <View style={styles.sectionPadding}>
           <StatsFilter
             activeFilter={activeFilter}
             onFilterChange={setActiveFilter}
             dateRange={dateRange}
             onRangeChange={setDateRange}
           />
+        </View>
+
+        <View style={styles.sectionHeadingRow}>
+          <Text style={styles.sectionTitle}>Key sleep metrics</Text>
+          <Text style={styles.sectionHint}>{activeFilter === 'week' ? 'Last 7 days' : chartTitle}</Text>
         </View>
 
         <View style={styles.metricsSection}>
@@ -415,15 +472,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
                   ? 'danger'
                   : 'bad'
             }
-          />
-        </View>
-
-        <View style={styles.sectionPadding}>
-          <NightDetailCard
-            night={nightDetail}
-            nightKeys={nightKeys}
-            selectedKey={activeNightKey}
-            onSelectNight={setSelectedNightKey}
+            style={styles.successMetric}
           />
         </View>
 
@@ -432,7 +481,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         </View>
 
         <View style={styles.trendSection}>
-          <Text style={styles.trendLabel}>Monthly Trend</Text>
+          <Text style={styles.trendLabel}>Monthly progress</Text>
           <GlassCard style={styles.trendCard}>
             <View
               style={[
@@ -541,6 +590,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         </View>
 
         <View style={{ height: 40 }} />
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -548,6 +598,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  scrollContent: { paddingBottom: 24 },
+  pageColumn: { width: '100%', maxWidth: 720, alignSelf: 'center' },
   loadingContainer: {
     flex: 1,
     backgroundColor: colors.background,
@@ -585,32 +637,108 @@ const styles = StyleSheet.create({
   },
   retryButtonText: { color: '#ffffff', fontWeight: '700', fontSize: 15 },
 
-  header: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 16 },
+  header: { paddingHorizontal: 16, paddingTop: 18, paddingBottom: 16 },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
   headerGlass: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 22,
+    backgroundColor: colors.backgroundSoft,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingHorizontal: 18,
+    borderColor: colors.borderStrong,
+    paddingHorizontal: 16,
     paddingVertical: 16,
   },
+  headerGlassCompact: { paddingHorizontal: 14, paddingVertical: 14 },
   headerContent: { flex: 1, paddingRight: 12 },
   brand: {
     color: colors.accent,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.6,
-    marginBottom: 4,
+    marginBottom: 3,
   },
-  greeting: { fontSize: 24, fontWeight: '800', color: colors.text, marginBottom: 6 },
+  greeting: { fontSize: 26, fontWeight: '800', color: colors.text, marginBottom: 3 },
   statusRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
   liveDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   statusLabel: { fontSize: 13, color: colors.textMuted },
   statusValue: { fontSize: 13, fontWeight: '700' },
   headerSubtitle: { fontSize: 12, lineHeight: 18, color: colors.textMuted },
   profileButton: { alignItems: 'center', justifyContent: 'center' },
+  overviewCopy: { flex: 1, minWidth: 0 },
+  snapshotHagosaur: {
+    width: 104,
+    height: 88,
+    marginLeft: -8,
+    marginRight: 10,
+  },
+  snapshotHagosaurCompact: {
+    width: 82,
+    height: 76,
+    marginLeft: -10,
+    marginRight: 6,
+  },
+  overviewEyebrow: {
+    color: colors.accentDark,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 3,
+  },
+  connectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 9,
+    paddingTop: 9,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  connectionText: { flex: 1, color: colors.textMuted, fontSize: 11, fontWeight: '600' },
+  severityTextInline: { fontSize: 11, fontWeight: '800', marginLeft: 8 },
+
+  connectionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  connectionBannerOnline: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+  },
+  connectionBannerOffline: {
+    backgroundColor: '#fffbeb',
+    borderColor: '#fde68a',
+  },
+  connectionHagosaur: {
+    width: 88,
+    height: 82,
+    marginLeft: -8,
+    marginRight: 8,
+  },
+  connectionBannerCopy: { flex: 1, minWidth: 0 },
+  connectionEyebrow: {
+    color: colors.accentDark,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  connectionTitle: { color: colors.text, fontSize: 14, fontWeight: '800', marginBottom: 3 },
+  connectionCaption: { color: colors.textSecondary, fontSize: 11, lineHeight: 15 },
+  connectionStateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 7,
+  },
+  connectionStateText: { fontSize: 9, fontWeight: '800', letterSpacing: 0.7 },
 
   alertBanner: { marginHorizontal: 16, marginBottom: 16, padding: 14, backgroundColor: '#fffbeb', borderColor: '#fde68a' },
   alertRow: { flexDirection: 'row', alignItems: 'flex-start' },
@@ -618,6 +746,16 @@ const styles = StyleSheet.create({
   alertText: { fontSize: 12, color: '#92400e', lineHeight: 18 },
 
   sectionPadding: { paddingHorizontal: 16, marginBottom: 12 },
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    gap: 12,
+  },
+  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  sectionHint: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
   moodSectionLabel: {
     fontSize: 12,
     fontWeight: '700',
@@ -634,16 +772,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   moodIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
   moodCopy: { flex: 1 },
-  moodLabel: { fontSize: 22, fontWeight: '800', marginBottom: 4 },
-  moodCaption: { fontSize: 13, color: colors.textSecondary, lineHeight: 18, marginBottom: 4 },
+  moodLabel: { fontSize: 20, fontWeight: '800', marginBottom: 2 },
+  moodCaption: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
   moodMeta: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
 
   metricsSection: {
@@ -652,6 +790,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 12,
   },
+  successMetric: { flexBasis: '94%' },
 
   trendSection: { marginHorizontal: 16, marginBottom: 20 },
   trendLabel: {

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -42,6 +42,8 @@ const formatPumpDuration = (seconds: number) => {
 };
 
 export const LogsScreen = () => {
+  const { width } = useWindowDimensions();
+  const compact = width < 380;
   const [events, setEvents] = useState<SleepEvent[]>([]);
   const [filter, setFilter] = useState<FilterType>('all');
   const [severityFilter, setSeverityFilter] = useState<SeverityFilter>('all');
@@ -107,7 +109,7 @@ export const LogsScreen = () => {
     const pumpLabel = formatPumpDuration(item.interventionDuration);
 
     return (
-      <View style={styles.logCard}>
+      <View style={[styles.logCard, compact && styles.logCardCompact]}>
         <View style={[styles.iconWrap, { backgroundColor: isIntervention ? 'rgba(14,165,233,0.16)' : sev.bg }]}>
           <FontAwesome5
             name={isIntervention ? 'wind' : 'wave-square'}
@@ -116,23 +118,27 @@ export const LogsScreen = () => {
           />
         </View>
         <View style={styles.logBody}>
-          <Text style={styles.logTitle}>{isIntervention ? 'Pillow inflated' : 'Snore detected'}</Text>
-          <Text style={styles.logMeta}>{moment(item.timestamp).format('ddd, MMM D · h:mm A')}</Text>
-          {item.level != null || item.rms != null ? (
-            <Text style={styles.logMeta}>
-              {item.level != null ? `VOL ${item.level}` : 'Snore'}
+          <View style={styles.logTopRow}>
+            <Text style={styles.logTitle} numberOfLines={1}>
+              {isIntervention ? 'Pillow inflated' : 'Snore detected'}
+            </Text>
+            <View style={[styles.severityPill, { backgroundColor: sev.bg }]}>
+              <Text style={[styles.severityText, { color: sev.color }]}>{sev.label}</Text>
+            </View>
+          </View>
+          <Text style={styles.logDate}>{moment(item.timestamp).format('ddd, MMM D · h:mm A')}</Text>
+          <View style={styles.logBottomRow}>
+            <Text style={styles.logMeta} numberOfLines={1}>
+              {item.level != null
+                ? `VOL ${item.level}`
+                : isIntervention
+                  ? 'Smart pillow response'
+                  : 'Snore event'}
               {item.rms != null ? ` · RMS ${item.rms}` : ''}
               {pumpLabel ? ` · ${pumpLabel}` : ''}
             </Text>
-          ) : pumpLabel ? (
-            <Text style={styles.logMeta}>{pumpLabel}</Text>
-          ) : null}
-        </View>
-        <View style={styles.logRight}>
-          <View style={[styles.severityPill, { backgroundColor: sev.bg }]}>
-            <Text style={[styles.severityText, { color: sev.color }]}>{sev.label}</Text>
+            <Text style={styles.durationText}>{formatSnoreDuration(item.duration)}</Text>
           </View>
-          <Text style={styles.durationText}>{formatSnoreDuration(item.duration)}</Text>
         </View>
       </View>
     );
@@ -140,21 +146,19 @@ export const LogsScreen = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <View style={styles.pageColumn}>
       <View style={styles.header}>
-        <View style={styles.headerIcon}>
-          <FontAwesome5 name="clipboard-list" size={16} color="#0284c7" />
-        </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Historical Logs</Text>
           <Text style={styles.headerSubtitle}>
             {filteredEvents.length === 0
               ? 'No events recorded'
-              : `Showing ${rangeStart}–${rangeEnd} of ${filteredEvents.length}`}
+              : `Showing ${rangeStart}–${rangeEnd} of ${filteredEvents.length} events`}
           </Text>
         </View>
       </View>
 
-      <View style={styles.filterRow}>
+      <View style={[styles.filterRow, compact && styles.horizontalInsetCompact]}>
         {([
           { id: 'all', label: 'All' },
           { id: 'severity', label: 'Severity' },
@@ -176,7 +180,7 @@ export const LogsScreen = () => {
       </View>
 
       {filter === 'severity' ? (
-        <View style={styles.subFilterRow}>
+        <View style={[styles.subFilterRow, compact && styles.horizontalInsetCompact]}>
           {([
             { id: 'all', label: 'All' },
             { id: 'high', label: 'High' },
@@ -197,11 +201,12 @@ export const LogsScreen = () => {
       ) : null}
 
       <FlatList
+        style={styles.list}
         data={paginatedEvents}
         renderItem={renderLogItem}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[styles.listContent, compact && styles.listContentCompact]}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <View style={styles.emptyIcon}>
@@ -236,36 +241,33 @@ export const LogsScreen = () => {
           ) : null
         }
       />
+      </View>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
+  pageColumn: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center' },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
+    marginHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 16,
   },
-  headerIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: 'rgba(14, 165, 233, 0.22)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
+  horizontalInsetCompact: { marginHorizontal: 12 },
+  headerTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+    color: colors.text,
+    marginBottom: 6,
   },
-  headerTitle: { fontSize: 20, fontWeight: '800', color: colors.text },
-  headerSubtitle: { fontSize: 13, color: colors.textMuted, fontWeight: '500', marginTop: 4 },
+  headerSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
   filterRow: {
     flexDirection: 'row',
     marginHorizontal: 16,
@@ -300,17 +302,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  list: { flex: 1 },
   listContent: { paddingHorizontal: 16, paddingBottom: 28 },
+  listContentCompact: { paddingHorizontal: 12 },
   logCard: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
+    alignItems: 'flex-start',
+    backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
   },
+  logCardCompact: { padding: 12, borderRadius: 14 },
   iconWrap: {
     width: 40,
     height: 40,
@@ -319,18 +324,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-  logBody: { flex: 1, paddingRight: 8 },
-  logTitle: { color: colors.text, fontSize: 14, fontWeight: '700', marginBottom: 3 },
-  logMeta: { color: colors.textMuted, fontSize: 12 },
-  logRight: { alignItems: 'flex-end' },
+  logBody: { flex: 1, minWidth: 0 },
+  logTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  logTitle: { flex: 1, color: colors.text, fontSize: 14, fontWeight: '700' },
+  logDate: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
+  logBottomRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 7,
+    paddingTop: 7,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  logMeta: { flex: 1, color: colors.textMuted, fontSize: 11 },
   severityPill: {
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 4,
-    marginBottom: 6,
   },
   severityText: { fontSize: 11, fontWeight: '800' },
-  durationText: { color: colors.textSecondary, fontSize: 13, fontWeight: '700' },
+  durationText: { color: colors.accentDark, fontSize: 12, fontWeight: '800' },
   emptyWrap: { alignItems: 'center', marginTop: 48 },
   emptyIcon: {
     width: 48,

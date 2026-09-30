@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -13,6 +13,7 @@ import { NameInputScreen } from './src/screens/NameInputScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { LogsScreen } from './src/screens/LogsScreen';
 import { AssessmentScreen } from './src/screens/AssessmentScreen';
+import { NightDetailScreen } from './src/screens/NightDetailScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { UserContext } from './src/context/UserContext';
@@ -34,6 +35,7 @@ import {
 } from './src/services/userStorage';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from './src/utils/statsCalculator';
 import moment from 'moment';
+import { playNightExitAnimation } from './src/services/nightTabTransition';
 
 if (Platform.OS === 'web') {
   enableScreens(false);
@@ -53,6 +55,8 @@ const LogsTabScreen = () => <LogsScreen />;
 
 const AssessmentTabScreen = () => <AssessmentScreen />;
 
+const NightDetailTabScreen = () => <NightDetailScreen />;
+
 const SettingsTabScreen = () => <SettingsScreen />;
 
 const TabIcon = ({
@@ -69,10 +73,49 @@ const TabIcon = ({
   </View>
 );
 
+const CenterNightTabButton = (props: any) => {
+  const focused = !!props.accessibilityState?.selected;
+  return (
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityLabel="Night Detail"
+      accessibilityState={props.accessibilityState}
+      onPress={props.onPress}
+      onLongPress={props.onLongPress}
+      activeOpacity={0.88}
+      style={styles.centerTabButton}
+    >
+      <View style={styles.centerTabCradle}>
+        <View style={[styles.centerTabFab, focused && styles.centerTabFabActive]}>
+          <FontAwesome5 name="moon" size={20} color={colors.onAccent} solid />
+        </View>
+        <Text style={[styles.centerTabLabel, focused && styles.centerTabLabelActive]}>Night</Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
 const MainTabs = () => {
   const insets = useSafeAreaInsets();
+  const exitingNightRef = React.useRef(false);
   return (
   <Tab.Navigator
+    screenListeners={({ navigation, route }) => ({
+      tabPress: (event) => {
+        const state = navigation.getState();
+        const currentRoute = state.routes[state.index]?.name;
+        if (currentRoute === 'NightDetailTab' && route.name !== 'NightDetailTab') {
+          event.preventDefault();
+          if (exitingNightRef.current) return;
+          exitingNightRef.current = true;
+          playNightExitAnimation()
+            .then(() => navigation.navigate(route.name as never))
+            .finally(() => {
+              exitingNightRef.current = false;
+            });
+        }
+      },
+    })}
     screenOptions={{
       headerShown: false,
       lazy: true,
@@ -90,6 +133,7 @@ const MainTabs = () => {
         paddingHorizontal: 10,
         elevation: 0,
         shadowOpacity: 0,
+        overflow: 'visible',
       },
       tabBarItemStyle: {
         paddingVertical: 6,
@@ -116,6 +160,30 @@ const MainTabs = () => {
         tabBarIcon: ({ color, focused }) => (
           <TabIcon name="clipboard-list" color={color} focused={focused} />
         ),
+      }}
+    />
+    <Tab.Screen
+      name="NightDetailTab"
+      component={NightDetailTabScreen}
+      options={{
+        title: "Night",
+        tabBarButton: (props) => <CenterNightTabButton {...props} />,
+        tabBarIcon: () => null,
+        tabBarLabel: () => null,
+        tabBarActiveTintColor: '#7dd3fc',
+        tabBarInactiveTintColor: '#a9bfdf',
+        tabBarStyle: {
+          backgroundColor: '#071126',
+          borderTopColor: '#294a78',
+          borderTopWidth: StyleSheet.hairlineWidth,
+          height: 68 + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 6,
+          paddingHorizontal: 10,
+          elevation: 0,
+          shadowOpacity: 0,
+          overflow: 'visible',
+        },
       }}
     />
     <Tab.Screen
@@ -334,4 +402,43 @@ const styles = StyleSheet.create({
   tabIconWellActive: {
     backgroundColor: colors.accentSoft,
   },
+  centerTabButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    overflow: 'visible',
+  },
+  centerTabCradle: {
+    width: 76,
+    height: 84,
+    marginTop: -27,
+    alignItems: 'center',
+    paddingTop: 8,
+  },
+  centerTabFab: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentDark,
+    borderWidth: 4,
+    borderColor: colors.surface,
+    shadowColor: '#0369a1',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  centerTabFabActive: {
+    backgroundColor: '#0ea5e9',
+    borderColor: '#102442',
+  },
+  centerTabLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  centerTabLabelActive: { color: '#bae6fd' },
 });

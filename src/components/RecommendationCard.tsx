@@ -1,5 +1,13 @@
 import React from 'react';
-import { ActivityIndicator, View, Text, StyleSheet } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  ImageSourcePropType,
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+} from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { RecommendationData } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
@@ -9,14 +17,22 @@ interface RecommendationCardProps {
   data: RecommendationData;
   aiStatus?: 'idle' | 'loading' | 'ready' | 'error';
   aiEnabled?: boolean;
+  aiError?: string;
+  onRetryAi?: () => void;
   personalizedActionsOnly?: boolean;
+  guideName?: string;
+  guideImage?: ImageSourcePropType;
 }
 
 export const RecommendationCard: React.FC<RecommendationCardProps> = ({
   data,
   aiStatus = 'idle',
   aiEnabled = false,
+  aiError,
+  onRetryAi,
   personalizedActionsOnly = false,
+  guideName,
+  guideImage,
 }) => {
   const severityColor = getSeverityColor(data.severityLevel);
   const hasGeneratedActions = data.source === 'on_device' || data.source === 'ai';
@@ -33,13 +49,25 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { borderLeftColor: severityColor }]}>
-        <View style={[styles.headerIconContainer, { backgroundColor: severityColor + '20' }]}>
-          <FontAwesome5 name={severityIcons[data.severityLevel]} size={20} color={severityColor} />
-        </View>
+        {!guideImage ? (
+          <View style={[styles.headerIconContainer, { backgroundColor: severityColor + '20' }]}>
+            <FontAwesome5 name={severityIcons[data.severityLevel]} size={20} color={severityColor} />
+          </View>
+        ) : null}
         <View style={styles.headerContent}>
-          <Text style={[styles.headerTitle, { color: severityColor }]}>Sleep Health Assessment</Text>
+          <Text style={[styles.headerTitle, { color: severityColor }]}>
+            {guideName ? `${guideName}'s Sleep Guidance` : 'Sleep Health Assessment'}
+          </Text>
           <Text style={styles.trendMessage}>{data.trendMessage}</Text>
         </View>
+        {guideImage ? (
+          <Image
+            source={guideImage}
+            style={styles.guideImage}
+            resizeMode="contain"
+            accessibilityLabel={`${guideName || 'Sleep guide'} presenting your wellness guidance`}
+          />
+        ) : null}
       </View>
 
       {/* Main Recommendation Text */}
@@ -86,7 +114,11 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
       {showActions && (
         <View style={styles.actionsContainer}>
           <Text style={styles.actionsTitle}>
-            {data.severityLevel === 'danger' ? 'Safety actions' : 'Therapeutic wellness actions'}
+            {data.severityLevel === 'danger'
+              ? 'Safety actions'
+              : guideName
+                ? `${guideName}'s therapeutic wellness actions`
+                : 'Therapeutic wellness actions'}
           </Text>
           {data.actionItems.map((item, index) => (
             <View key={index} style={styles.actionItem}>
@@ -101,7 +133,9 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
 
       {personalizedActionsOnly && !showActions && data.severityLevel !== 'danger' ? (
         <View style={styles.actionsContainer}>
-          <Text style={styles.actionsTitle}>Therapeutic wellness actions</Text>
+          <Text style={styles.actionsTitle}>
+            {guideName ? `${guideName}'s therapeutic wellness actions` : 'Therapeutic wellness actions'}
+          </Text>
           <View style={styles.pendingActions}>
             {aiStatus === 'loading' ? (
               <ActivityIndicator size="small" color={colors.accent} />
@@ -112,13 +146,21 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                 color={colors.textMuted}
               />
             )}
-            <Text style={styles.pendingActionsText}>
-              {aiStatus === 'loading'
-                ? 'Generating personalized actions from your daily check-in...'
-                : aiStatus === 'error'
-                  ? 'The on-device model could not generate actions. Please try the assessment again.'
-                  : 'Download the on-device AI model above to generate personalized actions.'}
-            </Text>
+            <View style={styles.pendingActionsContent}>
+              <Text style={styles.pendingActionsText}>
+                {aiStatus === 'loading'
+                  ? 'Generating personalized actions from your daily check-in...'
+                  : aiStatus === 'error'
+                    ? aiError || 'The on-device model could not generate actions.'
+                    : `Download the on-device AI model ${guideName ? 'below' : 'above'} to generate personalized actions.`}
+              </Text>
+              {aiStatus === 'error' && onRetryAi ? (
+                <TouchableOpacity style={styles.retryButton} onPress={onRetryAi} activeOpacity={0.8}>
+                  <FontAwesome5 name="redo" size={11} color={colors.onAccent} />
+                  <Text style={styles.retryButtonText}>Try again</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </View>
         </View>
       ) : null}
@@ -183,6 +225,13 @@ const styles = StyleSheet.create({
   },
   headerContent: {
     flex: 1,
+  },
+  guideImage: {
+    width: 76,
+    height: 88,
+    marginTop: -10,
+    marginBottom: -10,
+    marginLeft: 8,
   },
   headerTitle: {
     fontSize: 14,
@@ -288,11 +337,23 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   pendingActionsText: {
-    flex: 1,
     color: colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
   },
+  pendingActionsContent: { flex: 1 },
+  retryButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 10,
+  },
+  retryButtonText: { color: colors.onAccent, fontSize: 12, fontWeight: '700' },
   warningBanner: {
     flexDirection: 'row',
     backgroundColor: 'rgba(239, 68, 68, 0.08)',

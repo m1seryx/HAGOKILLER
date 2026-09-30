@@ -5,9 +5,11 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  Image,
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -43,6 +45,8 @@ import { colors } from '../constants/theme';
 import { DailyActivityCheckIn, DailyStats, MonthlyStats, RecommendationData } from '../types';
 
 export const AssessmentScreen = () => {
+  const { width } = useWindowDimensions();
+  const compact = width < 380;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [today, setToday] = useState<DailyStats | null>(null);
@@ -50,6 +54,8 @@ export const AssessmentScreen = () => {
   const [checkIn, setCheckIn] = useState<DailyActivityCheckIn | null>(null);
   const [aiRecommendation, setAiRecommendation] = useState<RecommendationData | null>(null);
   const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [aiError, setAiError] = useState('');
+  const [aiRetryNonce, setAiRetryNonce] = useState(0);
   const [modelStatus, setModelStatus] = useState<OnDeviceModelStatus>('checking');
   const [modelProgress, setModelProgress] = useState(0);
   const [modelError, setModelError] = useState('');
@@ -153,6 +159,7 @@ export const AssessmentScreen = () => {
 
     let active = true;
     setAiStatus('loading');
+    setAiError('');
     requestOnDeviceAssessmentAdvice(today, month, checkIn, fallbackRecommendations)
       .then((advice) => {
         if (active) {
@@ -160,11 +167,15 @@ export const AssessmentScreen = () => {
           setAiStatus('ready');
         }
       })
-      .catch(() => {
-        if (active) setAiStatus('error');
+      .catch((error) => {
+        if (active) {
+          const message = error instanceof Error ? error.message : 'Unknown on-device AI error.';
+          setAiError(message.slice(0, 240));
+          setAiStatus('error');
+        }
       });
     return () => { active = false; };
-  }, [today, month, checkIn, fallbackRecommendations, modelStatus]);
+  }, [today, month, checkIn, fallbackRecommendations, modelStatus, aiRetryNonce]);
 
   if (loading || !today || !month) {
     return (
@@ -189,10 +200,29 @@ export const AssessmentScreen = () => {
         }
         showsVerticalScrollIndicator={false}
       >
+        <View style={styles.pageColumn}>
         <Text style={styles.title}>Assessment</Text>
         <Text style={styles.subtitle}>
-          Check in with your daily habits for more personal sleep tips.
+          Check in with your daily habits for more personal sleep guidance.
         </Text>
+
+        <View style={[styles.hagosaurCard, compact && styles.hagosaurCardCompact]}>
+          <View style={styles.hagosaurCopy}>
+            <Text style={styles.hagosaurEyebrow}>HAGOSAUR WELLNESS GUIDE</Text>
+            <Text style={[styles.hagosaurTitle, compact && styles.hagosaurTitleCompact]}>
+              Small steps for a calmer night
+            </Text>
+            <Text style={styles.hagosaurText}>
+              Tell Hagosaur about your day to receive supportive, personalized wellness actions.
+            </Text>
+          </View>
+          <Image
+            source={require('../../assets/sleeping-dinosaur.png')}
+            style={[styles.hagosaurImage, compact && styles.hagosaurImageCompact]}
+            resizeMode="contain"
+            accessibilityLabel="Hagosaur, your sleep wellness guide"
+          />
+        </View>
 
         <AssessmentQuestionnaire
           key={todayDate}
@@ -202,12 +232,35 @@ export const AssessmentScreen = () => {
           onSave={handleSaveCheckIn}
         />
 
-        <OnDeviceAiCard
-          status={modelStatus}
-          progress={modelProgress}
-          error={modelError}
-          onDownload={handleDownloadModel}
+        <View style={styles.guidanceHeading}>
+          <View style={styles.guidanceIcon}>
+            <FontAwesome5 name="heart" size={12} color={colors.onAccent} solid />
+          </View>
+          <View style={styles.guidanceCopy}>
+            <Text style={styles.guidanceEyebrow}>FROM HAGOSAUR</Text>
+            <Text style={styles.guidanceTitle}>Your therapeutic wellness plan</Text>
+          </View>
+        </View>
+
+        <RecommendationCard
+          data={recommendations!}
+          aiStatus={aiStatus}
+          aiEnabled={modelStatus === 'ready' && today.severity !== 'danger'}
+          aiError={aiError}
+          onRetryAi={() => setAiRetryNonce((value) => value + 1)}
+          personalizedActionsOnly
+          guideName="Hagosaur"
+          guideImage={require('../../assets/hagosaur-wellness-guide.png')}
         />
+
+        {modelStatus !== 'ready' ? (
+          <OnDeviceAiCard
+            status={modelStatus}
+            progress={modelProgress}
+            error={modelError}
+            onDownload={handleDownloadModel}
+          />
+        ) : null}
 
         <GlassCard style={styles.hintCard}>
           <View style={styles.hintRow}>
@@ -218,12 +271,7 @@ export const AssessmentScreen = () => {
           </View>
         </GlassCard>
 
-        <RecommendationCard
-          data={recommendations!}
-          aiStatus={aiStatus}
-          aiEnabled={modelStatus === 'ready' && today.severity !== 'danger'}
-          personalizedActionsOnly
-        />
+        </View>
       </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -233,6 +281,7 @@ export const AssessmentScreen = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 20, paddingBottom: 40 },
+  pageColumn: { width: '100%', maxWidth: 720, alignSelf: 'center' },
   loadingContainer: {
     flex: 1,
     backgroundColor: colors.background,
@@ -256,6 +305,62 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 16,
   },
+  hagosaurCard: {
+    minHeight: 150,
+    flexDirection: 'row',
+    alignItems: 'center',
+    overflow: 'hidden',
+    backgroundColor: colors.backgroundSoft,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    paddingLeft: 18,
+    marginBottom: 16,
+  },
+  hagosaurCardCompact: { minHeight: 138, paddingLeft: 14 },
+  hagosaurCopy: { flex: 1, zIndex: 1, paddingVertical: 16 },
+  hagosaurEyebrow: {
+    color: colors.accentDark,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 5,
+  },
+  hagosaurTitle: {
+    color: colors.text,
+    fontSize: 21,
+    lineHeight: 26,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  hagosaurTitleCompact: { fontSize: 18, lineHeight: 22 },
+  hagosaurText: { color: colors.textSecondary, fontSize: 12, lineHeight: 17 },
+  hagosaurImage: { width: 190, height: 145, marginRight: -18 },
+  hagosaurImageCompact: { width: 108, height: 112, marginRight: -10 },
+  guidanceHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    marginBottom: 10,
+  },
+  guidanceIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent,
+    marginRight: 10,
+  },
+  guidanceCopy: { flex: 1 },
+  guidanceEyebrow: {
+    color: colors.accentDark,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  guidanceTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
   hintCard: { padding: 14, marginBottom: 16 },
   hintRow: { flexDirection: 'row', alignItems: 'flex-start' },
   hintText: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 18 },

@@ -39,6 +39,19 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
     }
   };
 
+  const handleSelectDate = () => {
+    const selected = moment(pickerDate).format('YYYY-MM-DD');
+    if (pickerVisible === 'from') {
+      setFrom(selected);
+      if (moment(selected).isAfter(moment(to), 'day')) setTo(selected);
+    }
+    if (pickerVisible === 'to') {
+      setTo(selected);
+      if (moment(selected).isBefore(moment(from), 'day')) setFrom(selected);
+    }
+    setPickerVisible(null);
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.segmentedContainer}>
@@ -65,28 +78,52 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
 
       {activeFilter === 'range' && (
         <View style={styles.rangeContainer}>
+          <View style={styles.rangeHeading}>
+            <View style={styles.rangeHeadingIcon}>
+              <FontAwesome5 name="calendar-alt" size={13} color={colors.accentDark} />
+            </View>
+            <View style={styles.rangeHeadingCopy}>
+              <Text style={styles.rangeTitle}>Choose a date range</Text>
+              <Text style={styles.rangeHint}>Tap either date to change it</Text>
+            </View>
+          </View>
           <View style={styles.rangeRow}>
             <View style={styles.rangeField}>
-              <Text style={styles.rangeLabel}>From</Text>
-              <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(from).toDate()); setPickerVisible('from'); }}>
-                <FontAwesome5 name="calendar-alt" size={12} color="#0ea5e9" style={{ marginRight: 6 }} />
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{from}</Text>
+              <Text style={styles.rangeLabel}>START DATE</Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`Change start date, currently ${moment(from).format('MMMM D, YYYY')}`}
+                style={styles.rangeInputButton}
+                onPress={() => { setPickerDate(moment(from).toDate()); setPickerVisible('from'); }}
+              >
+                <FontAwesome5 name="calendar-day" size={12} color={colors.accent} />
+                <Text style={styles.rangeDateText} numberOfLines={1}>{moment(from).format('MMM D, YYYY')}</Text>
+                <FontAwesome5 name="chevron-down" size={9} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.rangeField}>
-              <Text style={styles.rangeLabel}>To</Text>
-              <TouchableOpacity style={styles.rangeInputButton} onPress={() => { setPickerDate(moment(to).toDate()); setPickerVisible('to'); }}>
-                <FontAwesome5 name="calendar-alt" size={12} color="#0ea5e9" style={{ marginRight: 6 }} />
-                <Text style={{ color: colors.text, fontSize: 13, fontWeight: '600' }}>{to}</Text>
+              <Text style={styles.rangeLabel}>END DATE</Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel={`Change end date, currently ${moment(to).format('MMMM D, YYYY')}`}
+                style={styles.rangeInputButton}
+                onPress={() => { setPickerDate(moment(to).toDate()); setPickerVisible('to'); }}
+              >
+                <FontAwesome5 name="calendar-day" size={12} color={colors.accent} />
+                <Text style={styles.rangeDateText} numberOfLines={1}>{moment(to).format('MMM D, YYYY')}</Text>
+                <FontAwesome5 name="chevron-down" size={9} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
-
-            <TouchableOpacity style={styles.applyButton} onPress={handleApply}>
-              <FontAwesome5 name="check" size={12} color="#ffffff" style={{ marginRight: 4 }} />
-              <Text style={styles.applyText}>Apply</Text>
-            </TouchableOpacity>
           </View>
+          <TouchableOpacity
+            accessibilityRole="button"
+            style={[styles.applyButton, styles.rangeApplyButton]}
+            onPress={handleApply}
+          >
+            <FontAwesome5 name="check" size={12} color="#ffffff" />
+            <Text style={styles.applyText}>Apply date range</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -136,11 +173,7 @@ export const StatsFilter: React.FC<StatsFilterProps> = ({
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12, gap: 8 }}>
               <TouchableOpacity 
                 style={[styles.applyButton, { flex: 1 }]} 
-                onPress={() => { 
-                  if (pickerVisible === 'from') setFrom(moment(pickerDate).format('YYYY-MM-DD')); 
-                  if (pickerVisible === 'to') setTo(moment(pickerDate).format('YYYY-MM-DD')); 
-                  setPickerVisible(null); 
-                }}
+                onPress={handleSelectDate}
               >
                 <Text style={styles.applyText}>Select</Text>
               </TouchableOpacity>
@@ -161,22 +194,23 @@ const styles = StyleSheet.create({
   },
   segmentedContainer: {
     flexDirection: 'row',
-    backgroundColor: colors.backgroundMuted,
-    borderRadius: 12,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: colors.border,
+    gap: 6,
   },
   filterButton: {
     flex: 1,
-    minHeight: 44,
-    paddingVertical: 8,
+    minHeight: 38,
+    paddingHorizontal: 5,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 8,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   filterButtonActive: {
     backgroundColor: colors.accent,
+    borderColor: colors.accent,
     shadowColor: '#0ea5e9',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
@@ -184,7 +218,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   filterText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textMuted,
   },
@@ -194,26 +228,42 @@ const styles = StyleSheet.create({
   },
   rangeContainer: {
     marginTop: 12,
-    padding: 12,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: 12,
+    padding: 14,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
   },
+  rangeHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  rangeHeadingIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accentSoft,
+    marginRight: 10,
+  },
+  rangeHeadingCopy: { flex: 1 },
+  rangeTitle: { color: colors.text, fontSize: 14, fontWeight: '800' },
+  rangeHint: { color: colors.textMuted, fontSize: 10, marginTop: 2 },
   rangeRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     gap: 8,
   },
   rangeField: {
     flex: 1,
-    minWidth: 130,
+    minWidth: 0,
   },
   rangeLabel: {
     fontSize: 10,
     color: colors.textMuted,
-    marginBottom: 6,
+    marginBottom: 5,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
@@ -222,12 +272,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.background,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
     paddingVertical: 8,
-    minHeight: 44,
+    minHeight: 46,
+    gap: 7,
+  },
+  rangeDateText: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: '700',
   },
   applyButton: {
     flexDirection: 'row',
@@ -238,7 +295,9 @@ const styles = StyleSheet.create({
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 7,
   },
+  rangeApplyButton: { width: '100%', marginTop: 12, borderRadius: 11 },
   applyText: {
     color: '#ffffff',
     fontWeight: '700',

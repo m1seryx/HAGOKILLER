@@ -115,6 +115,19 @@ export const downloadOnDeviceModel = async (
   }
 };
 
+/** Replaces the installed model and releases any mapped llama context first. */
+export const repairOnDeviceModel = async (
+  onProgress: (progress: number) => void,
+): Promise<void> => {
+  await inferenceQueue;
+  if (context) {
+    await context.release().catch(() => undefined);
+    context = null;
+  }
+  initialization = null;
+  await downloadOnDeviceModel(onProgress);
+};
+
 const getContext = async (): Promise<LlamaContext> => {
   if (context) return context;
   if (initialization) return initialization;
@@ -124,10 +137,13 @@ const getContext = async (): Promise<LlamaContext> => {
     .then(({ initLlama }) => initLlama({
       model: MODEL_PATH,
       n_ctx: 2048,
-      n_batch: 128,
+      n_batch: 64,
       n_threads: 4,
       n_gpu_layers: 0,
       use_mlock: false,
+      use_mmap: true,
+      cache_type_k: 'q8_0',
+      cache_type_v: 'q8_0',
     }))
     .then((nextContext) => {
       context = nextContext;
@@ -181,30 +197,47 @@ const generateAdvice = async (
     sleepHours: checkIn?.sleepHours ?? null,
     mouthBreathing: checkIn?.mouthBreathing ?? null,
   };
-  const result = await llama.completion({
-    messages: [
-      { role: 'system', content: SAFETY_PROMPT },
-      {
-        role: 'user',
-        content: `Create genuinely personalized guidance from this assessment data. Do not produce a generic sleep-hygiene checklist: ${JSON.stringify(promptData)}`,
+  const complete = (retry: boolean) => llama.completion({
+      messages: [
+        { role: 'system', content: SAFETY_PROMPT },
+        {
+          role: 'user',
+          content: retry
+            ? `Return a complete valid JSON assessment now. Include 4 to 6 concrete actionItems and follow the schema exactly. Data: ${JSON.stringify(promptData)}`
+            : `Create genuinely personalized guidance from this assessment data. Do not produce a generic sleep-hygiene checklist: ${JSON.stringify(promptData)}`,
+        },
+      ],
+      response_format: {
+        type: 'json_schema',
+        json_schema: { strict: true, schema: ADVICE_SCHEMA },
       },
-    ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: { strict: true, schema: ADVICE_SCHEMA },
-    },
-    enable_thinking: false,
-    chat_template_kwargs: { enable_thinking: false },
-    reasoning_format: 'none',
-    n_predict: 800,
-    temperature: 0.3,
-    top_k: 30,
-    top_p: 0.9,
-    stop: ['<|im_end|>', '<|endoftext|>', '</s>'],
-  });
+      enable_thinking: false,
+      chat_template_kwargs: { enable_thinking: false },
+      reasoning_format: 'none',
+      n_predict: 700,
+      temperature: retry ? 0.1 : 0.3,
+      top_k: retry ? 10 : 30,
+      top_p: 0.9,
+      stop: ['<|im_end|>', '<|endoftext|>', '</s>'],
+    });
+
+  let generated: ReturnType<typeof parseGeneratedAdvice>;
+  const firstResult = await complete(false);
+  try {
+    generated = parseGeneratedAdvice(
+      firstResult.content || firstResult.text,
+      monthlyStats.trend === 'improving',
+    );
+  } catch {
+    const retryResult = await complete(true);
+    generated = parseGeneratedAdvice(
+      retryResult.content || retryResult.text,
+      monthlyStats.trend === 'improving',
+    );
+  }
   return {
     ...fallback,
-    ...parseGeneratedAdvice(result.content || result.text, monthlyStats.trend === 'improving'),
+    ...generated,
     activityContext: undefined,
     dailyTip: undefined,
     source: 'on_device',

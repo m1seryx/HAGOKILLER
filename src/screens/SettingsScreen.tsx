@@ -13,6 +13,7 @@ import {
   Platform,
   Switch,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -44,6 +45,17 @@ import {
   SNORE_WINDOW_STEP_SEC,
 } from '../services/deviceSettings';
 import type { PillowCommand } from '../services/esp32Protocol';
+import {
+  isOnDeviceAiSupported,
+  ON_DEVICE_MODEL_SIZE_MB,
+  repairOnDeviceModel,
+} from '../services/onDeviceAssessment';
+import {
+  completeModelDownloadNotification,
+  failModelDownloadNotification,
+  startModelDownloadNotification,
+  updateModelDownloadNotification,
+} from '../services/modelDownloadNotifications';
 
 const PIN_LENGTH = 7;
 
@@ -79,6 +91,8 @@ const Stepper = ({ value, min, max, step = 1, format, onChange }: StepperProps) 
 );
 
 export const SettingsScreen = () => {
+  const { width } = useWindowDimensions();
+  const compact = width < 380;
   const navigation = useNavigation<any>();
   const { userName, userProfile } = useUser();
   const {
@@ -116,6 +130,9 @@ export const SettingsScreen = () => {
   const [pinError, setPinError] = useState('');
   const [notificationsOn, setNotificationsOn] = useState(true);
   const [testingNotif, setTestingNotif] = useState(false);
+  const [modelRepairStatus, setModelRepairStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle');
+  const [modelRepairProgress, setModelRepairProgress] = useState(0);
+  const [modelRepairMessage, setModelRepairMessage] = useState('');
   const pinRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -298,6 +315,41 @@ export const SettingsScreen = () => {
     }
   };
 
+  const runModelRepair = async () => {
+    setModelRepairStatus('downloading');
+    setModelRepairProgress(0);
+    setModelRepairMessage('');
+    try {
+      await startModelDownloadNotification();
+      await repairOnDeviceModel((progress) => {
+        setModelRepairProgress(progress);
+        updateModelDownloadNotification(progress);
+      });
+      setModelRepairStatus('success');
+      setModelRepairMessage('AI model repaired successfully. Assessment guidance is ready.');
+      await completeModelDownloadNotification();
+    } catch (error) {
+      setModelRepairStatus('error');
+      setModelRepairMessage(error instanceof Error ? error.message : 'Could not repair the AI model.');
+      await failModelDownloadNotification();
+    }
+  };
+
+  const handleRepairModel = () => {
+    if (!isOnDeviceAiSupported()) {
+      Alert.alert('Native build required', 'Model repair is available in an installed EAS build, not Expo Go.');
+      return;
+    }
+    Alert.alert(
+      'Repair AI model?',
+      `This replaces the local model by downloading approximately ${ON_DEVICE_MODEL_SIZE_MB} MB. Keep the app open and use Wi-Fi.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Repair model', onPress: () => { void runModelRepair(); } },
+      ],
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -316,8 +368,14 @@ export const SettingsScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.pageColumn}>
         <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Pair your pillow here, then tune device behavior</Text>
+        <Text style={styles.subtitle}>Manage your account, smart pillow, alerts, and device behavior.</Text>
+
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionEyebrow}>ACCOUNT</Text>
+          <Text style={styles.sectionTitle}>Your profile</Text>
+        </View>
 
         <TouchableOpacity
           style={styles.profileCard}
@@ -336,6 +394,11 @@ export const SettingsScreen = () => {
           </View>
           <FontAwesome5 name="chevron-right" size={14} color="#94a3b8" />
         </TouchableOpacity>
+
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionEyebrow}>ALERTS</Text>
+          <Text style={styles.sectionTitle}>Notifications</Text>
+        </View>
 
         <GlassCard style={styles.card}>
           <View style={styles.deviceTitleRow}>
@@ -376,6 +439,61 @@ export const SettingsScreen = () => {
             )}
           </TouchableOpacity>
         </GlassCard>
+
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionEyebrow}>INTELLIGENCE</Text>
+          <Text style={styles.sectionTitle}>On-device guidance</Text>
+        </View>
+
+        <GlassCard style={styles.card}>
+          <View style={styles.deviceTitleRow}>
+            <FontAwesome5 name="tools" size={16} color={colors.accentDark} />
+            <Text style={styles.cardTitle}>On-device AI model</Text>
+          </View>
+          <Text style={styles.cardHint}>
+            Repair the model if Assessment cannot generate actions or if the downloaded file may be incomplete.
+            This securely replaces it with a fresh {ON_DEVICE_MODEL_SIZE_MB} MB copy.
+          </Text>
+          {modelRepairStatus === 'downloading' ? (
+            <View style={styles.modelProgressWrap}>
+              <View style={styles.modelProgressTrack}>
+                <View
+                  style={[
+                    styles.modelProgressFill,
+                    { width: `${Math.round(modelRepairProgress * 100)}%` },
+                  ]}
+                />
+              </View>
+              <Text style={styles.modelProgressText}>
+                Redownloading AI model... {Math.round(modelRepairProgress * 100)}%
+              </Text>
+            </View>
+          ) : null}
+          {modelRepairMessage ? (
+            <Text style={modelRepairStatus === 'error' ? styles.modelRepairError : styles.modelRepairSuccess}>
+              {modelRepairMessage}
+            </Text>
+          ) : null}
+          <TouchableOpacity
+            style={[styles.testButton, modelRepairStatus === 'downloading' && styles.saveButtonDisabled]}
+            onPress={handleRepairModel}
+            disabled={modelRepairStatus === 'downloading'}
+          >
+            {modelRepairStatus === 'downloading' ? (
+              <ActivityIndicator color={colors.onAccent} size="small" />
+            ) : (
+              <>
+                <FontAwesome5 name="sync-alt" size={13} color={colors.onAccent} />
+                <Text style={styles.testButtonText}>Repair AI model</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </GlassCard>
+
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionEyebrow}>SMART PILLOW</Text>
+          <Text style={styles.sectionTitle}>Pairing and connection</Text>
+        </View>
 
         <GlassCard style={styles.card}>
           <View style={styles.deviceHeader}>
@@ -483,14 +601,19 @@ export const SettingsScreen = () => {
           ) : null}
         </GlassCard>
 
+        <View style={styles.sectionHeading}>
+          <Text style={styles.sectionEyebrow}>PILLOW RESPONSE</Text>
+          <Text style={styles.sectionTitle}>Detection and inflation</Text>
+        </View>
+
         <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>Device Parameter Settings</Text>
           <Text style={styles.cardHint}>
             Pump starts when enough snore events land inside the detection window (default: 3 in 15s).
           </Text>
 
-          <View style={styles.settingRow}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
+          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
+            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
               <Text style={styles.settingLabel}>Snoring events to trigger</Text>
               <Text style={styles.settingHint}>
                 Count of snore detections inside the window (default 3)
@@ -507,8 +630,8 @@ export const SettingsScreen = () => {
             />
           </View>
 
-          <View style={styles.settingRow}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
+          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
+            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
               <Text style={styles.settingLabel}>Detection window</Text>
               <Text style={styles.settingHint}>
                 If {snoreThreshold} snores occur within this time, the pump starts (default 15s)
@@ -527,8 +650,8 @@ export const SettingsScreen = () => {
             />
           </View>
 
-          <View style={styles.settingRow}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
+          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
+            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
               <Text style={styles.settingLabel}>Pump activation duration</Text>
               <Text style={styles.settingHint}>Seconds the air pump stays on (5–120)</Text>
             </View>
@@ -545,8 +668,8 @@ export const SettingsScreen = () => {
             />
           </View>
 
-          <View style={styles.settingRow}>
-            <View style={{ flex: 1, paddingRight: 12 }}>
+          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
+            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
               <Text style={styles.settingLabel}>Mic shift</Text>
               <Text style={styles.settingHint}>Higher = closer range (15 default, 16 if still far)</Text>
             </View>
@@ -574,6 +697,11 @@ export const SettingsScreen = () => {
             </Text>
           </TouchableOpacity>
         </GlassCard>
+
+        <View style={[styles.sectionHeading, styles.safetyHeading]}>
+          <Text style={[styles.sectionEyebrow, styles.safetyEyebrow]}>SAFETY</Text>
+          <Text style={styles.sectionTitle}>Manual pillow controls</Text>
+        </View>
 
         <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>Prototype safety controls</Text>
@@ -609,6 +737,7 @@ export const SettingsScreen = () => {
             <Text style={styles.dangerButtonText}>Open solenoid valve (release air)</Text>
           </TouchableOpacity>
         </GlassCard>
+        </View>
       </ScrollView>
 
       <Modal transparent visible={pinModalVisible} animationType="fade" onRequestClose={() => setPinModalVisible(false)}>
@@ -708,11 +837,23 @@ export const SettingsScreen = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40 },
+  pageColumn: { width: '100%', maxWidth: 720, alignSelf: 'center' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: colors.textMuted, marginTop: 12, fontWeight: '600' },
   title: { color: colors.text, fontSize: 28, fontWeight: '800', marginBottom: 6 },
   subtitle: { color: colors.textMuted, fontSize: 14, marginBottom: 20, lineHeight: 20 },
+  sectionHeading: { marginTop: 4, marginBottom: 9, paddingHorizontal: 2 },
+  sectionEyebrow: {
+    color: colors.accentDark,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    marginBottom: 2,
+  },
+  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  safetyHeading: { marginTop: 6 },
+  safetyEyebrow: { color: '#dc2626' },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -721,7 +862,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 20,
     padding: 14,
-    marginBottom: 16,
+    marginBottom: 22,
   },
   profileCopy: { flex: 1, paddingHorizontal: 14 },
   profileName: { color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 2 },
@@ -744,11 +885,24 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(14, 165, 233, 0.35)',
   },
   testButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
-  card: { padding: 18, marginBottom: 16 },
+  modelProgressWrap: { marginBottom: 14 },
+  modelProgressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.backgroundMuted,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  modelProgressFill: { height: '100%', borderRadius: 4, backgroundColor: colors.accent },
+  modelProgressText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  modelRepairSuccess: { color: '#047857', fontSize: 12, lineHeight: 18, marginBottom: 12 },
+  modelRepairError: { color: '#b91c1c', fontSize: 12, lineHeight: 18, marginBottom: 12 },
+  card: { padding: 16, marginBottom: 22, borderRadius: 16 },
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
   cardHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 16 },
   deviceHeader: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 14,
@@ -760,6 +914,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 5,
+    marginTop: 2,
   },
   badgeText: { fontSize: 12, fontWeight: '700' },
   dot: { width: 7, height: 7, borderRadius: 4, marginRight: 6 },
@@ -772,9 +927,10 @@ const styles = StyleSheet.create({
   },
   infoLabel: { color: colors.textMuted, fontSize: 13 },
   infoValue: { color: colors.textSecondary, fontSize: 13, fontWeight: '600', maxWidth: '62%', textAlign: 'right' },
-  actionRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
   actionButton: {
     flex: 1,
+    minWidth: 120,
     minHeight: 48,
     borderRadius: 14,
     flexDirection: 'row',
@@ -816,9 +972,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 16,
   },
-  settingLabel: { color: colors.text, fontSize: 13, fontWeight: '700', marginBottom: 2 },
-  settingHint: { color: colors.textMuted, fontSize: 11 },
-  stepper: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  settingRowCompact: { flexDirection: 'column', alignItems: 'stretch', gap: 10 },
+  settingCopy: { flex: 1, paddingRight: 12 },
+  settingCopyCompact: { flex: 0, paddingRight: 0 },
+  settingLabel: { color: colors.text, fontSize: 13, fontWeight: '700', marginBottom: 3 },
+  settingHint: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
+  stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 10 },
   stepButton: {
     width: 44,
     height: 44,
