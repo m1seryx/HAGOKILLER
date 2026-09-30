@@ -32,18 +32,6 @@ export const StatsCard: React.FC<StatsCardProps> = ({
       {/* Dynamic top-left color bar for visual cue */}
       <View style={[styles.glowBar, { backgroundColor: severityColor }]} />
 
-      <View style={styles.header}>
-        <View style={[
-          styles.iconContainer, 
-          { backgroundColor: severityColor + '1a' }
-        ]}>
-          <FontAwesome5 name={icon} size={15} color={severityColor} />
-        </View>
-        <Text style={styles.label} numberOfLines={2}>
-          {label}
-        </Text>
-      </View>
-
       <View style={styles.content}>
         <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
           {value}
@@ -58,25 +46,36 @@ export const StatsCard: React.FC<StatsCardProps> = ({
           </View>
         )}
       </View>
+
+      <View style={styles.header}>
+        <Text style={styles.label} numberOfLines={2}>
+          {label}
+        </Text>
+        <View style={[
+          styles.iconContainer,
+          { backgroundColor: severityColor + '1a' }
+        ]}>
+          <FontAwesome5 name={icon} size={15} color={severityColor} />
+        </View>
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    flex: 1,
-    flexBasis: '44%',
-    minWidth: 130,
-    margin: 4,
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 14,
+    padding: 13,
     borderWidth: 1,
     borderColor: colors.border,
     position: 'relative',
     overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 1,
@@ -90,15 +89,16 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   header: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'flex-end',
     gap: 8,
   },
   iconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -107,18 +107,17 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     color: colors.textMuted,
     fontWeight: '600',
-    minHeight: 34,
-    flex: 1,
+    textAlign: 'right',
   },
   content: {
+    flex: 1,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    flexWrap: 'wrap',
-    gap: 4,
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    gap: 8,
   },
   value: {
-    fontSize: 28,
+    fontSize: 23,
     fontWeight: '800',
     color: colors.text,
     letterSpacing: -0.5,

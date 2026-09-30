@@ -1,5 +1,8 @@
-/** Sky blue + white theme with black typography. */
+/** Deep-night brand palette with bright, accessible content surfaces. */
 export const colors = {
+  night: '#071126',
+  nightSoft: '#102442',
+  nightBorder: '#294a78',
   background: '#f4f8fc',
   backgroundSoft: '#f0f9ff',
   backgroundMuted: '#e0f2fe',

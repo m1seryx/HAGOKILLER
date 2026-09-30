@@ -1,44 +1,47 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, ActivityIndicator, Text, Animated, Image } from 'react-native';
+import { View, StyleSheet, Text, Animated, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { colors } from '../constants/theme';
 
 interface LoadingScreenProps {
   onLoadingComplete: () => void;
 }
 
 export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete }) => {
-  const [statusText, setStatusText] = useState('Initializing sleep monitor...');
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const [statusText, setStatusText] = useState('Waking Hagosaur...');
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const timer1 = setTimeout(() => setStatusText('Opening local sleep database...'), 800);
-    const timer2 = setTimeout(() => setStatusText('Loading your profile...'), 1600);
-    const timer3 = setTimeout(() => setStatusText('Preparing analytics...'), 2400);
-    const timer4 = setTimeout(onLoadingComplete, 3200);
+    const timer1 = setTimeout(() => setStatusText('Opening local sleep database...'), 550);
+    const timer2 = setTimeout(() => setStatusText('Loading your profile...'), 1100);
+    const timer3 = setTimeout(() => setStatusText('Preparing your sleep dashboard...'), 1650);
+    const timer4 = setTimeout(onLoadingComplete, 2200);
 
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.12, duration: 1000, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1.0, duration: 1000, useNativeDriver: true }),
-      ])
-    ).start();
+    const progressAnimation = Animated.timing(progressAnim, {
+      toValue: 1,
+      duration: 2100,
+      useNativeDriver: false,
+    });
+    progressAnimation.start();
 
     return () => {
       clearTimeout(timer1);
       clearTimeout(timer2);
       clearTimeout(timer3);
       clearTimeout(timer4);
+      progressAnimation.stop();
     };
-  }, [onLoadingComplete]);
+  }, [onLoadingComplete, progressAnim]);
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.content}>
         <View style={styles.logoWrapper}>
-          <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseAnim }] }]} />
-          <Image source={require('../../assets/icon.png')} style={styles.splashIcon} />
+          <Image
+            source={require('../../assets/splash-hagosaur.png')}
+            style={styles.splashArt}
+            resizeMode="contain"
+          />
         </View>
 
         <View style={styles.brandContainer}>
@@ -47,13 +50,29 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
         </View>
 
         <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color="#0ea5e9" />
+          <View style={styles.progressHeader}>
+            <Text style={styles.progressLabel}>SETTING UP YOUR NIGHT</Text>
+            <FontAwesome5 name="moon" size={10} color="#7dd3fc" solid />
+          </View>
+          <View style={styles.progressTrack}>
+            <Animated.View
+              style={[
+                styles.progressFill,
+                {
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['4%', '100%'],
+                  }),
+                },
+              ]}
+            />
+          </View>
           <Text style={styles.loadingText}>{statusText}</Text>
         </View>
       </View>
 
       <View style={styles.footerContainer}>
-        <FontAwesome5 name="shield-alt" size={12} color="#4b5563" style={{ marginRight: 6 }} />
+        <FontAwesome5 name="shield-alt" size={12} color="#6f8fb4" style={{ marginRight: 6 }} />
         <Text style={styles.footer}>Stored locally on this device</Text>
       </View>
     </SafeAreaView>
@@ -63,7 +82,7 @@ export const LoadingScreen: React.FC<LoadingScreenProps> = ({ onLoadingComplete 
 const styles = StyleSheet.create({
   container: {
     flex: 1, 
-    backgroundColor: colors.background,
+    backgroundColor: '#071126',
     justifyContent: 'space-between', 
     alignItems: 'center', 
     paddingBottom: 40,
@@ -77,23 +96,13 @@ const styles = StyleSheet.create({
   logoWrapper: {
     justifyContent: 'center',
     alignItems: 'center',
-    width: 168,
-    height: 168,
-    marginBottom: 32,
+    width: 270,
+    height: 230,
+    marginBottom: 22,
   },
-  pulseRing: {
-    position: 'absolute',
-    width: 148,
-    height: 148,
-    borderRadius: 40,
-    borderWidth: 1.5,
-    borderColor: 'rgba(14, 165, 233, 0.28)',
-    backgroundColor: 'rgba(14, 165, 233, 0.04)',
-  },
-  splashIcon: {
-    width: 112,
-    height: 112,
-    borderRadius: 28,
+  splashArt: {
+    width: '100%',
+    height: '100%',
   },
   brandContainer: {
     alignItems: 'center',
@@ -102,7 +111,7 @@ const styles = StyleSheet.create({
   titlePrefix: { 
     fontSize: 36, 
     fontWeight: '900', 
-    color: colors.text, 
+    color: '#f8fbff',
     letterSpacing: 2,
   },
   titleSuffix: { 
@@ -110,23 +119,46 @@ const styles = StyleSheet.create({
   },
   subtitle: { 
     fontSize: 10, 
-    color: colors.textMuted, 
+    color: '#8fb2d8',
     letterSpacing: 4, 
     marginTop: 8,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   loaderContainer: { 
+    width: 240,
+    minHeight: 72,
+  },
+  progressHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    height: 60,
+    justifyContent: 'space-between',
+    marginBottom: 9,
+  },
+  progressLabel: {
+    color: '#7dd3fc',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 1.4,
+  },
+  progressTrack: {
+    height: 5,
+    overflow: 'hidden',
+    borderRadius: 5,
+    backgroundColor: '#173158',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 5,
+    backgroundColor: '#38bdf8',
   },
   loadingText: { 
     fontSize: 12, 
-    color: colors.textMuted, 
-    marginTop: 16, 
+    color: '#a9bfdf',
+    marginTop: 12,
     fontWeight: '600',
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
   footerContainer: {
     flexDirection: 'row',
@@ -134,7 +166,7 @@ const styles = StyleSheet.create({
   },
   footer: { 
     fontSize: 11, 
-    color: '#4b5563',
+    color: '#6f8fb4',
     fontWeight: '500',
     letterSpacing: 0.5,
   },

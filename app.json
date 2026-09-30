@@ -6,18 +6,17 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app-icon-hagosaur.png",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/splash-hagosaur.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#071126"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.smartpillow.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "HAGOKILLER uses your photos so you can set a profile picture.",
         "NSUserNotificationsUsageDescription": "HAGOKILLER sends a notification when your pillow detects snoring.",
         "NSBluetoothAlwaysUsageDescription": "HAGOKILLER uses Bluetooth to connect to your smart pillow.",
         "NSBluetoothPeripheralUsageDescription": "HAGOKILLER uses Bluetooth to connect to your smart pillow.",
@@ -26,8 +25,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/app-icon-hagosaur.png",
+        "backgroundColor": "#071126"
       },
       "package": "com.smartpillow.app",
       "versionCode": 2,
@@ -39,8 +38,6 @@
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_SCAN",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.VIBRATE",
         "android.permission.RECORD_AUDIO"
       ]
@@ -48,19 +45,13 @@
     "web": {
       "bundler": "metro",
       "output": "single",
-      "favicon": "./assets/icon.png"
+      "favicon": "./assets/app-icon-hagosaur.png"
     },
     "plugins": [
       [
-        "expo-image-picker",
-        {
-          "photosPermission": "HAGOKILLER uses your photos so you can set a profile picture."
-        }
-      ],
-      [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/app-icon-hagosaur.png",
           "color": "#0ea5e9",
           "sounds": []
         }

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity, useWindowDimensions,
+  View, Text, StyleSheet, FlatList, TouchableOpacity, useWindowDimensions, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
@@ -22,6 +22,14 @@ const SEVERITY_RANK: Record<SleepEvent['severity'], number> = {
   medium: 1,
   low: 2,
 };
+
+const HAGOSAUR_SEVERITY_FACES = {
+  low: require('../../assets/hagosaur-face-low.png'),
+  medium: require('../../assets/hagosaur-face-medium.png'),
+  high: require('../../assets/hagosaur-face-high.png'),
+};
+
+const HAGOSAUR_INFLATING_PILLOW = require('../../assets/hagosaur-inflating-pillow.png');
 
 type FilterType = 'all' | 'severity' | 'durations';
 type SeverityFilter = 'all' | 'low' | 'medium' | 'high';
@@ -111,10 +119,16 @@ export const LogsScreen = () => {
     return (
       <View style={[styles.logCard, compact && styles.logCardCompact]}>
         <View style={[styles.iconWrap, { backgroundColor: isIntervention ? 'rgba(14,165,233,0.16)' : sev.bg }]}>
-          <FontAwesome5
-            name={isIntervention ? 'wind' : 'wave-square'}
-            size={14}
-            color={isIntervention ? '#0284c7' : sev.color}
+          <Image
+            source={isIntervention ? HAGOSAUR_INFLATING_PILLOW : HAGOSAUR_SEVERITY_FACES[item.severity]}
+            style={[styles.hagosaurIcon, isIntervention && styles.interventionIcon]}
+            resizeMode="contain"
+            accessible
+            accessibilityLabel={
+              isIntervention
+                ? 'Hagosaur inflating the smart pillow'
+                : `Hagosaur showing ${sev.label.toLowerCase()} snoring severity`
+            }
           />
         </View>
         <View style={styles.logBody}>
@@ -317,13 +331,16 @@ const styles = StyleSheet.create({
   },
   logCardCompact: { padding: 12, borderRadius: 14 },
   iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
+    overflow: 'hidden',
   },
+  hagosaurIcon: { width: 43, height: 43 },
+  interventionIcon: { width: 48, height: 48 },
   logBody: { flex: 1, minWidth: 0 },
   logTopRow: {
     flexDirection: 'row',

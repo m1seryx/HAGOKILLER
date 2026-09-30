@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Animated,
+  Image,
   Modal,
   ScrollView,
   FlatList,
@@ -125,34 +126,46 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.card}>
-            <View style={styles.iconRing}>
-              <View style={styles.iconCircle}>
-                <FontAwesome5 name="user-astronaut" size={32} color="#0ea5e9" />
-              </View>
+            <View style={styles.heroPanel}>
+              <View style={styles.heroGlow} />
+              <Image
+                source={require("../../assets/moon-pillow-comets.png")}
+                style={styles.heroArtwork}
+                resizeMode="contain"
+              />
             </View>
 
             <View style={styles.textContainer}>
-              <Text style={styles.title}>Welcome Aboard</Text>
+              <Text style={styles.eyebrow}>YOUR SLEEP SPACE</Text>
+              <Text style={styles.title}>Welcome aboard</Text>
               <Text style={styles.subtitle}>
-                Personalize your sleep analytics profile
+                A few details help shape your nightly insights.
               </Text>
             </View>
 
-            <TextInput
-              style={[styles.input, nameTouched && !name.trim() && styles.inputError]}
-              placeholder="Full name"
-              placeholderTextColor="#6b7280"
-              value={name}
-              onChangeText={setName}
-              onBlur={() => setNameTouched(true)}
-              returnKeyType="next"
-            />
-            {nameTouched && !name.trim() ? (
-              <Text style={styles.fieldError}>Please enter your name to continue.</Text>
-            ) : null}
+            <View style={styles.formSection}>
+              <View style={styles.labelRow}>
+                <FontAwesome5 name="user" size={11} color="#0284c7" solid />
+                <Text style={styles.fieldLabel}>YOUR NAME</Text>
+              </View>
+              <TextInput
+                style={[styles.input, nameTouched && !name.trim() && styles.inputError]}
+                placeholder="Enter your full name"
+                placeholderTextColor="#7890aa"
+                value={name}
+                onChangeText={setName}
+                onBlur={() => setNameTouched(true)}
+                returnKeyType="next"
+              />
+              {nameTouched && !name.trim() ? (
+                <Text style={styles.fieldError}>Please enter your name to continue.</Text>
+              ) : null}
 
-            <View style={styles.birthSection}>
-              <Text style={styles.fieldLabel}>Birthdate (optional)</Text>
+              <View style={styles.labelRow}>
+                <FontAwesome5 name="birthday-cake" size={11} color="#0284c7" solid />
+                <Text style={styles.fieldLabel}>BIRTHDATE</Text>
+                <Text style={styles.optionalLabel}>Optional</Text>
+              </View>
               <View style={styles.birthRow}>
                 <TouchableOpacity style={styles.birthSelect} onPress={() => setBirthField("month")}>
                   <Text style={styles.birthSelectHint}>Month</Text>
@@ -174,53 +187,64 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
                   <Text style={styles.clearBirth}>Clear birthdate</Text>
                 </TouchableOpacity>
               ) : null}
-            </View>
 
-            <TouchableOpacity
-              style={styles.smallInput}
-              onPress={() => setGoalModalVisible(true)}
-            >
-              <Text style={{ color: "#000000", fontSize: 15 }}>
-                Sleep goal:{" "}
-                {sleepGoal === "other"
-                  ? otherGoal || "Other"
-                  : sleepGoal
-                    ? `${sleepGoal} hrs`
-                    : "Select"}
-              </Text>
-            </TouchableOpacity>
-
-            {sleepGoal === "other" && (
-              <TextInput
-                style={[styles.smallInput, { marginTop: 0 }]}
-                placeholder="Enter custom hours"
-                placeholderTextColor="#6b7280"
-                value={otherGoal}
-                onChangeText={(v) => setOtherGoal(v.replace(/[^0-9.]/g, ""))}
-                keyboardType="decimal-pad"
-              />
-            )}
-
-            <Animated.View style={{ transform: [{ scale: scaleAnim }], width: "100%" }}>
+              <View style={[styles.labelRow, styles.goalLabelRow]}>
+                <FontAwesome5 name="moon" size={11} color="#0284c7" solid />
+                <Text style={styles.fieldLabel}>SLEEP GOAL</Text>
+              </View>
               <TouchableOpacity
-                style={[styles.button, !name.trim() && styles.buttonDisabled]}
-                onPress={handleSubmit}
-                onPressIn={handlePressIn}
-                onPressOut={handlePressOut}
-                disabled={!name.trim()}
-                activeOpacity={0.9}
+                style={styles.goalSelect}
+                onPress={() => setGoalModalVisible(true)}
               >
-                <Text style={[styles.buttonText, !name.trim() && styles.buttonTextDisabled]}>
-                  Continue
-                </Text>
-                <FontAwesome5
-                  name="arrow-right"
-                  size={12}
-                  color={!name.trim() ? "#6b7280" : "#ffffff"}
-                  style={{ marginLeft: 8, marginTop: 2 }}
-                />
+                <View>
+                  <Text style={styles.goalHint}>Your nightly target</Text>
+                  <Text style={styles.goalValue}>
+                    {sleepGoal === "other"
+                      ? otherGoal
+                        ? `${otherGoal} hrs`
+                        : "Custom goal"
+                      : sleepGoal
+                        ? `${sleepGoal} hours`
+                        : "Select a goal"}
+                  </Text>
+                </View>
+                <View style={styles.chevronButton}>
+                  <FontAwesome5 name="chevron-down" size={11} color="#0284c7" />
+                </View>
               </TouchableOpacity>
-            </Animated.View>
+
+              {sleepGoal === "other" && (
+                <TextInput
+                  style={styles.customGoalInput}
+                  placeholder="Enter custom hours"
+                  placeholderTextColor="#7890aa"
+                  value={otherGoal}
+                  onChangeText={(v) => setOtherGoal(v.replace(/[^0-9.]/g, ""))}
+                  keyboardType="decimal-pad"
+                />
+              )}
+
+              <Animated.View style={{ transform: [{ scale: scaleAnim }], width: "100%" }}>
+                <TouchableOpacity
+                  style={[styles.button, !name.trim() && styles.buttonDisabled]}
+                  onPress={handleSubmit}
+                  onPressIn={handlePressIn}
+                  onPressOut={handlePressOut}
+                  disabled={!name.trim()}
+                  activeOpacity={0.9}
+                >
+                  <Text style={[styles.buttonText, !name.trim() && styles.buttonTextDisabled]}>
+                    Build my sleep profile
+                  </Text>
+                  <FontAwesome5
+                    name="arrow-right"
+                    size={12}
+                    color={!name.trim() ? "#7890aa" : "#ffffff"}
+                    style={styles.buttonIcon}
+                  />
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -326,92 +350,145 @@ const modalStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: colors.background },
-  container: { flex: 1, backgroundColor: colors.background },
-  scrollContent: { flexGrow: 1, justifyContent: "center", width: "100%", maxWidth: 560, alignSelf: "center", paddingHorizontal: 16, paddingVertical: 24 },
+  safeArea: { flex: 1, backgroundColor: colors.night },
+  container: { flex: 1, backgroundColor: colors.night },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 20,
+  },
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
-    padding: 24,
+    backgroundColor: "#ffffff",
+    borderRadius: 28,
+    padding: 14,
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "rgba(14, 165, 233, 0.2)",
+    borderColor: colors.nightBorder,
+    shadowColor: "#164e73",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 22,
+    elevation: 3,
   },
-  iconRing: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-    borderWidth: 1,
-    borderColor: "rgba(14, 165, 233, 0.25)",
-    backgroundColor: "rgba(14, 165, 233, 0.05)",
+  heroPanel: {
+    width: "100%",
+    height: 174,
+    borderRadius: 22,
+    overflow: "hidden",
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  iconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.night,
     borderWidth: 1,
-    borderColor: "rgba(14, 165, 233, 0.5)",
-    justifyContent: "center",
-    alignItems: "center",
+    borderColor: colors.nightBorder,
   },
-  textContainer: { alignItems: "center", marginBottom: 22 },
-  title: { fontSize: 28, fontWeight: "800", color: "#000000", marginBottom: 8, letterSpacing: 0.8 },
-  subtitle: { fontSize: 14, color: "#333333", textAlign: "center", lineHeight: 22, maxWidth: 300 },
+  heroGlow: {
+    position: "absolute",
+    width: 210,
+    height: 110,
+    borderRadius: 110,
+    backgroundColor: "rgba(14, 165, 233, 0.16)",
+  },
+  heroArtwork: { width: "96%", height: "142%" },
+  textContainer: { alignItems: "center", paddingHorizontal: 16, paddingTop: 20, paddingBottom: 18 },
+  eyebrow: { color: "#0284c7", fontSize: 10, fontWeight: "800", letterSpacing: 1.6, marginBottom: 7 },
+  title: { fontSize: 27, fontWeight: "900", color: "#10243e", marginBottom: 7, letterSpacing: 0.2 },
+  subtitle: { fontSize: 13, color: "#58708c", textAlign: "center", lineHeight: 19, maxWidth: 300 },
+  formSection: {
+    width: "100%",
+    borderRadius: 20,
+    backgroundColor: "#f8fbff",
+    borderWidth: 1,
+    borderColor: "#e1edf7",
+    padding: 16,
+  },
+  labelRow: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 8 },
+  fieldLabel: { color: "#3e5875", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  optionalLabel: { marginLeft: "auto", color: "#7890aa", fontSize: 10, fontWeight: "600" },
   input: {
     width: "100%",
-    backgroundColor: "#f0f9ff",
-    borderRadius: 18,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    fontSize: 16,
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 14,
+    fontSize: 15,
     fontWeight: "600",
-    color: "#000000",
+    color: "#10243e",
     borderWidth: 1,
-    borderColor: "rgba(14, 165, 233, 0.2)",
-    marginBottom: 14,
+    borderColor: "#cfe0ee",
+    marginBottom: 17,
   },
   inputError: { borderColor: "rgba(239, 68, 68, 0.6)" },
   fieldError: { color: "#b91c1c", fontSize: 12, alignSelf: "flex-start", marginTop: -8, marginBottom: 10 },
-  smallInput: {
-    width: "100%",
-    backgroundColor: "#f0f9ff",
-    borderRadius: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
-    color: "#000000",
-    borderWidth: 1,
-    borderColor: "rgba(14, 165, 233, 0.2)",
-    marginBottom: 14,
-  },
-  fieldLabel: { color: "#333333", fontSize: 12, marginBottom: 8, fontWeight: "600" },
-  birthSection: { width: "100%", marginBottom: 14 },
   birthRow: { flexDirection: "row", gap: 8 },
   birthSelect: {
     flex: 1,
-    backgroundColor: "#f0f9ff",
+    backgroundColor: "#ffffff",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "rgba(14, 165, 233, 0.2)",
+    borderColor: "#cfe0ee",
     paddingHorizontal: 10,
     paddingVertical: 12,
   },
-  birthSelectHint: { color: "#333333", fontSize: 11, marginBottom: 4 },
-  birthSelectValue: { color: "#000000", fontSize: 13, fontWeight: "700" },
+  birthSelectHint: { color: "#7890aa", fontSize: 10, marginBottom: 4 },
+  birthSelectValue: { color: "#10243e", fontSize: 13, fontWeight: "700" },
   clearBirth: { color: "#0284c7", fontSize: 12, fontWeight: "600", marginTop: 10, textAlign: "center" },
+  goalLabelRow: { marginTop: 18 },
+  goalSelect: {
+    width: "100%",
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#cfe0ee",
+    marginBottom: 16,
+  },
+  goalHint: { color: "#7890aa", fontSize: 10, marginBottom: 3 },
+  goalValue: { color: "#10243e", fontSize: 15, fontWeight: "800" },
+  chevronButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#e8f6fd",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  customGoalInput: {
+    width: "100%",
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
+    color: "#10243e",
+    borderWidth: 1,
+    borderColor: "#cfe0ee",
+    marginTop: -7,
+    marginBottom: 16,
+  },
   button: {
     flexDirection: "row",
     width: "100%",
     backgroundColor: "#0ea5e9",
-    borderRadius: 16,
-    paddingVertical: 16,
+    borderRadius: 14,
+    paddingVertical: 15,
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#0284c7",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 9,
+    elevation: 3,
   },
-  buttonDisabled: { backgroundColor: "#e0f2fe" },
+  buttonDisabled: { backgroundColor: "#dcecf6", shadowOpacity: 0, elevation: 0 },
   buttonText: { fontSize: 15, fontWeight: "700", color: "#ffffff", letterSpacing: 0.5 },
-  buttonTextDisabled: { color: "#333333" },
+  buttonTextDisabled: { color: "#7890aa" },
+  buttonIcon: { marginLeft: 9, marginTop: 2 },
 });

@@ -95,11 +95,14 @@ export async function notifySnoreDetected(event: SleepEvent): Promise<void> {
   const streakNote =
     event.snoreStreak != null ? ` (${event.snoreStreak}/${threshold} snores in window)` : '';
 
+  const title = event.interventionTriggered
+    ? 'Pillow Inflation Initiated'
+    : 'Snore Detected';
   const body = event.interventionTriggered
-    ? `${severity} snoring threshold reached${streakNote} — pillow inflating for ${event.interventionDuration}s.`
-    : `Snoring threshold reached${streakNote}.`;
+    ? `Hagosaur detected ${severity.toLowerCase()} snoring${streakNote} and is inflating your pillow for ${event.interventionDuration}s.`
+    : `Hagosaur detected ${severity.toLowerCase()} snoring${streakNote}. Check your sleep dashboard for details.`;
 
-  await presentNotification('Snoring threshold reached', body, { eventId: event.id });
+  await presentNotification(title, body, { eventId: event.id });
 }
 
 export async function sendTestNotification(): Promise<void> {
@@ -113,8 +116,8 @@ export async function sendTestNotification(): Promise<void> {
   }
 
   await presentNotification(
-    'Test notification',
-    'Alerts work. You get snore-threshold alerts and a daily sleep tip at 8:00 AM even if the app is closed.',
+    'Hagosaur Alerts Are Ready',
+    'Hagosaur will let you know when snoring is detected or your smart pillow begins inflating.',
     { test: 'true' },
   );
 }

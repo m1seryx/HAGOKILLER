@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { LineChart, BarChart } from 'react-native-chart-kit';
+import { FontAwesome5 } from '@expo/vector-icons';
 import { DailyStats } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
-import { colors } from '../constants/theme';
 
 interface SnorePatternsChartProps {
   weeklyData: DailyStats[];
@@ -36,7 +36,22 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
           fillShadowGradientOpacity: 0.15,
         },
       ],
-      legend: ['Snore Events'],
+    };
+  }, [weeklyData]);
+
+  const summary = useMemo(() => {
+    const total = weeklyData.reduce((sum, day) => sum + day.totalSnoreEvents, 0);
+    const peak = weeklyData.reduce<DailyStats | null>(
+      (best, day) => (!best || day.totalSnoreEvents > best.totalSnoreEvents ? day : best),
+      null,
+    );
+    return {
+      total,
+      average: weeklyData.length ? Math.round((total / weeklyData.length) * 10) / 10 : 0,
+      peakValue: peak?.totalSnoreEvents ?? 0,
+      peakLabel: peak
+        ? new Date(peak.date).toLocaleDateString('en-US', { weekday: 'short' })
+        : '—',
     };
   }, [weeklyData]);
 
@@ -64,32 +79,58 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
 
 
   const commonChartConfig = {
-    backgroundColor: colors.chartGradientFrom,
-    backgroundGradientFrom: colors.chartGradientFrom,
-    backgroundGradientTo: colors.chartGradientTo,
+    backgroundColor: '#f8fbff',
+    backgroundGradientFrom: '#f8fbff',
+    backgroundGradientTo: '#eef8fd',
     decimalPlaces: 0,
     color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(100, 116, 139, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(82, 103, 123, ${opacity})`,
     style: {
       borderRadius: 16,
     },
     propsForDots: {
-      r: '5',
-      strokeWidth: '2.5',
-      stroke: '#0ea5e9',
-      fill: colors.chartFill,
+      r: '4',
+      strokeWidth: '2',
+      stroke: '#38bdf8',
+      fill: '#ffffff',
     },
     propsForBackgroundLines: {
-      strokeDasharray: '4',
-      stroke: 'rgba(15, 23, 42, 0.08)',
+      strokeDasharray: '3 5',
+      stroke: 'rgba(2, 132, 199, 0.12)',
     },
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View style={styles.titleIndicator} />
-        <Text style={styles.title}>{title}</Text>
+        <View style={styles.headerIcon}>
+          <FontAwesome5 name="chart-line" size={13} color="#7dd3fc" />
+        </View>
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>SLEEP ANALYTICS</Text>
+          <Text style={styles.title}>{title}</Text>
+        </View>
+        <View style={styles.livePill}>
+          <View style={styles.liveDot} />
+          <Text style={styles.liveText}>{weeklyData.length} DAYS</Text>
+        </View>
+      </View>
+
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>TOTAL</Text>
+          <Text style={styles.summaryValue}>{summary.total}</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>DAILY AVG</Text>
+          <Text style={styles.summaryValue}>{summary.average}</Text>
+        </View>
+        <View style={styles.summaryDivider} />
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>PEAK · {summary.peakLabel.toUpperCase()}</Text>
+          <Text style={styles.summaryValue}>{summary.peakValue}</Text>
+        </View>
       </View>
 
       <View style={styles.chartWrapper} onLayout={({ nativeEvent }) => setChartWidth(Math.floor(nativeEvent.layout.width))}>
@@ -104,10 +145,11 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
             style={styles.chart}
             withDots={true}
             withInnerLines={true}
-            withOuterLines={true}
+            withOuterLines={false}
+            withVerticalLines={false}
             withVerticalLabels={true}
             fromZero
-            bezier
+            segments={4}
           />
         ) : (
           <BarChart
@@ -127,9 +169,9 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
       <View style={styles.legend}>
         <View style={styles.legendItem}>
           <View style={[styles.legendColor, { backgroundColor: '#0ea5e9' }]} />
-          <Text style={styles.legendLabel}>Snore Events (Count)</Text>
+          <Text style={styles.legendLabel}>Snore events</Text>
         </View>
-
+        <Text style={styles.legendHelp}>Count per night</Text>
       </View>
     </View>
   );
@@ -137,47 +179,61 @@ export const SnorePatternsChart: React.FC<SnorePatternsChartProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.surface,
-    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: '#000',
+    borderColor: '#dce7ef',
+    shadowColor: '#164e73',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
     elevation: 3,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
-    gap: 8,
+    marginBottom: 14,
+    gap: 10,
   },
-  titleIndicator: {
-    width: 4,
-    height: 14,
-    backgroundColor: '#0ea5e9',
-    borderRadius: 2,
+  headerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#e0f2fe',
+    borderWidth: 1,
+    borderColor: '#bae6fd',
   },
+  headerCopy: { flex: 1 },
+  eyebrow: { color: '#7dd3fc', fontSize: 9, fontWeight: '800', letterSpacing: 1.1, marginBottom: 2 },
   title: {
-    flex: 1,
     fontSize: 14,
-    fontWeight: '700',
-    color: colors.text,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    fontWeight: '800',
+    color: '#142c43',
   },
+  livePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10, backgroundColor: '#f0f9ff' },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#38bdf8' },
+  liveText: { color: '#52677b', fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', padding: 12, marginBottom: 12, borderRadius: 14, backgroundColor: '#f4f9fd' },
+  summaryItem: { flex: 1, alignItems: 'center' },
+  summaryLabel: { color: '#6b8298', fontSize: 9, fontWeight: '700', letterSpacing: 0.5, marginBottom: 4 },
+  summaryValue: { color: '#142c43', fontSize: 19, fontWeight: '900' },
+  summaryDivider: { width: 1, height: 28, backgroundColor: '#dce7ef' },
   chartWrapper: {
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 12,
     overflow: 'hidden',
-    minHeight: 120,
+    minHeight: 150,
+    backgroundColor: '#f8fbff',
+    borderWidth: 1,
+    borderColor: '#dce7ef',
   },
   emptyChart: {
-    color: colors.textMuted,
+    color: '#52677b',
     fontSize: 13,
     fontWeight: '600',
     paddingVertical: 36,
@@ -193,7 +249,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderTopColor: '#dce7ef',
   },
   legendItem: {
     flexDirection: 'row',
@@ -207,17 +263,12 @@ const styles = StyleSheet.create({
   },
   legendLabel: {
     fontSize: 11,
-    color: colors.textMuted,
-    fontWeight: '500',
-  },
-  legendDivider: {
-    width: 1,
-    height: 10,
-    backgroundColor: colors.border,
+    color: '#52677b',
+    fontWeight: '600',
   },
   legendHelp: {
     fontSize: 10,
-    color: colors.textMuted,
-    fontStyle: 'italic',
+    color: '#7890a5',
+    fontWeight: '600',
   },
 });

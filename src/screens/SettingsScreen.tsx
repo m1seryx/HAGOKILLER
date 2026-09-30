@@ -118,6 +118,7 @@ export const SettingsScreen = () => {
   const [saveError, setSaveError] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [disconnectVisible, setDisconnectVisible] = useState(false);
+  const [reconnectVisible, setReconnectVisible] = useState(false);
   const [unpairVisible, setUnpairVisible] = useState(false);
   const [stopConfirmVisible, setStopConfirmVisible] = useState(false);
   const [valveConfirmVisible, setValveConfirmVisible] = useState(false);
@@ -131,6 +132,7 @@ export const SettingsScreen = () => {
   const [notificationsOn, setNotificationsOn] = useState(true);
   const [testingNotif, setTestingNotif] = useState(false);
   const [modelRepairStatus, setModelRepairStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle');
+  const [repairConfirmVisible, setRepairConfirmVisible] = useState(false);
   const [modelRepairProgress, setModelRepairProgress] = useState(0);
   const [modelRepairMessage, setModelRepairMessage] = useState('');
   const pinRef = useRef<TextInput>(null);
@@ -255,6 +257,7 @@ export const SettingsScreen = () => {
   };
 
   const handleConnect = async () => {
+    setReconnectVisible(false);
     setBusy(true);
     try {
       await connect();
@@ -340,14 +343,7 @@ export const SettingsScreen = () => {
       Alert.alert('Native build required', 'Model repair is available in an installed EAS build, not Expo Go.');
       return;
     }
-    Alert.alert(
-      'Repair AI model?',
-      `This replaces the local model by downloading approximately ${ON_DEVICE_MODEL_SIZE_MB} MB. Keep the app open and use Wi-Fi.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Repair model', onPress: () => { void runModelRepair(); } },
-      ],
-    );
+    setRepairConfirmVisible(true);
   };
 
   if (loading) {
@@ -406,8 +402,7 @@ export const SettingsScreen = () => {
             <Text style={styles.cardTitle}>Push notifications</Text>
           </View>
           <Text style={styles.cardHint}>
-            Snore alerts when your threshold is hit or the pump inflates. A rule-based sleep tip is
-            also sent every day at 8:00 AM even if the app is closed.
+            Snore alerts when your threshold is hit or the pump inflates.
           </Text>
           <View style={styles.notifyRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
@@ -423,6 +418,17 @@ export const SettingsScreen = () => {
               thumbColor={notificationsOn ? '#0284c7' : '#94a3b8'}
               ios_backgroundColor="#374151"
             />
+          </View>
+          <View style={styles.scheduleNote}>
+            <View style={styles.scheduleIcon}>
+              <FontAwesome5 name="clock" size={13} color="#0284c7" />
+            </View>
+            <View style={styles.scheduleCopy}>
+              <Text style={styles.scheduleTitle}>Daily sleep tip</Text>
+              <Text style={styles.scheduleText}>
+                Scheduled every day at 8:00 AM, even when the app is closed.
+              </Text>
+            </View>
           </View>
           <TouchableOpacity
             style={[styles.testButton, !notificationsOn && styles.saveButtonDisabled]}
@@ -491,7 +497,7 @@ export const SettingsScreen = () => {
         </GlassCard>
 
         <View style={styles.sectionHeading}>
-          <Text style={styles.sectionEyebrow}>SMART PILLOW</Text>
+          <Text style={styles.sectionEyebrow}>HAGOKILLER</Text>
           <Text style={styles.sectionTitle}>Pairing and connection</Text>
         </View>
 
@@ -539,7 +545,7 @@ export const SettingsScreen = () => {
             ) : pairedDevice ? (
               <TouchableOpacity
                 style={[styles.actionButton, styles.connectButton]}
-                onPress={handleConnect}
+                onPress={() => setReconnectVisible(true)}
                 disabled={busy}
               >
                 {busy ? (
@@ -789,6 +795,18 @@ export const SettingsScreen = () => {
       </Modal>
 
       <ConfirmModal
+        visible={repairConfirmVisible}
+        title="Repair AI model?"
+        message={`This replaces the local model with a fresh ${ON_DEVICE_MODEL_SIZE_MB} MB download. Keep the app open and use Wi-Fi.`}
+        confirmLabel="Repair model"
+        artwork="computer"
+        onConfirm={() => {
+          setRepairConfirmVisible(false);
+          void runModelRepair();
+        }}
+        onCancel={() => setRepairConfirmVisible(false)}
+      />
+      <ConfirmModal
         visible={confirmVisible}
         title="Save device settings?"
         message={`Trigger after ${snoreThreshold} snores in ${snoreWindowSec}s, pump ${pumpDuration}s, mic shift ${micShift}?`}
@@ -815,12 +833,22 @@ export const SettingsScreen = () => {
       />
       <ConfirmModal
         visible={disconnectVisible}
-        title="Disconnect pillow?"
-        message="The BLE session will close. You can reconnect later without entering the PIN again."
+        title="Disconnect Hagokiller?"
+        message="Hagosaur will close the BLE link to your smart pillow. You can reconnect later without entering the PIN again."
         confirmLabel="Disconnect"
         destructive
+        artwork="ble-disconnect"
         onConfirm={handleDisconnect}
         onCancel={() => setDisconnectVisible(false)}
+      />
+      <ConfirmModal
+        visible={reconnectVisible}
+        title="Reconnect Hagokiller?"
+        message="Hagosaur will restore the BLE link to your paired smart pillow."
+        confirmLabel="Reconnect"
+        artwork="ble-reconnect"
+        onConfirm={handleConnect}
+        onCancel={() => setReconnectVisible(false)}
       />
       <ConfirmModal
         visible={unpairVisible}
@@ -828,6 +856,7 @@ export const SettingsScreen = () => {
         message="This forgets the device. You will need the 7-digit PIN to pair again."
         confirmLabel="Unpair"
         destructive
+        artwork="unplug"
         onConfirm={handleUnpair}
         onCancel={() => setUnpairVisible(false)}
       />
@@ -873,6 +902,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 14,
   },
+  scheduleNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    marginBottom: 14,
+    borderRadius: 14,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  scheduleIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: colors.accentSoft,
+  },
+  scheduleCopy: { flex: 1 },
+  scheduleTitle: { color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 2 },
+  scheduleText: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
   testButton: {
     backgroundColor: 'rgba(14, 165, 233, 0.9)',
     borderRadius: 14,

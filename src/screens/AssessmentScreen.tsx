@@ -262,15 +262,6 @@ export const AssessmentScreen = () => {
           />
         ) : null}
 
-        <GlassCard style={styles.hintCard}>
-          <View style={styles.hintRow}>
-            <FontAwesome5 name="bell" size={14} color={colors.accentDark} style={{ marginRight: 10 }} />
-            <Text style={styles.hintText}>
-              A sleep tip notification is also scheduled daily at 8:00 AM, even if the app is closed.
-            </Text>
-          </View>
-        </GlassCard>
-
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
@@ -361,7 +352,4 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   guidanceTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
-  hintCard: { padding: 14, marginBottom: 16 },
-  hintRow: { flexDirection: 'row', alignItems: 'flex-start' },
-  hintText: { flex: 1, color: colors.textSecondary, fontSize: 13, lineHeight: 18 },
 });

@@ -5,7 +5,6 @@ import {
   Image,
   StyleSheet,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   useWindowDimensions,
@@ -81,9 +80,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     });
   }, []);
 
-  const loadData = async () => {
+  const loadData = async (showFullScreenLoader = true) => {
     try {
-      setLoading(true);
+      if (showFullScreenLoader) setLoading(true);
       await bleService.restoreSession();
       if (bleService.isPaired() && !bleService.getIsConnected()) {
         try {
@@ -128,14 +127,20 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         lastSeen: 'unavailable',
       }));
     } finally {
-      setLoading(false);
+      if (showFullScreenLoader) setLoading(false);
     }
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadData();
-    setRefreshing(false);
+    try {
+      await Promise.all([
+        loadData(false),
+        new Promise((resolve) => setTimeout(resolve, 650)),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   useEffect(() => {
@@ -149,8 +154,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     return (
       <SafeAreaView style={styles.loadingContainer} edges={['top', 'left', 'right']}>
         <View style={styles.centerContent}>
-          <ActivityIndicator size="large" color="#0ea5e9" />
-          <Text style={styles.loadingText}>Syncing biosensor data...</Text>
+          <Image
+            source={require('../../assets/sleeping-dinosaur.png')}
+            style={styles.loadingHagosaur}
+            resizeMode="contain"
+          />
+          <Text style={styles.loadingTitle}>Hagosaur is checking your pillow</Text>
+          <Text style={styles.loadingText}>Syncing your latest sleep data...</Text>
         </View>
       </SafeAreaView>
     );
@@ -163,7 +173,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           <FontAwesome5 name="unlink" size={32} color="#ef4444" style={{ marginBottom: 16 }} />
           <Text style={styles.errorText}>Could not connect to your smart pillow</Text>
           <Text style={styles.errorHint}>Check that Bluetooth is on and your pillow is powered.</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={loadData}>
+          <TouchableOpacity style={styles.retryButton} onPress={() => loadData()}>
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
         </View>
@@ -304,6 +314,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const severityColor = getSeverityColor(stats.severity);
   const mood = getMoodStatus(stats.severity);
   const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
+  const latestMonth = monthHistory[monthHistory.length - 1];
+  const previousMonth = monthHistory[monthHistory.length - 2];
+  const monthlyEventChange =
+    latestMonth && previousMonth
+      ? latestMonth.totalSnoreEvents - previousMonth.totalSnoreEvents
+      : null;
+  const monthlyCoachMessage =
+    monthlyEventChange === null
+      ? 'Hagosaur will compare your progress when another month of data is available.'
+      : monthlyEventChange < 0
+        ? `Your snoring events decreased by ${Math.abs(monthlyEventChange)} this month compared with last month. Keep it up!`
+        : monthlyEventChange > 0
+          ? `Your snoring events increased by ${monthlyEventChange} this month. Take it easy tonight—slow down, relax, and protect your bedtime routine.`
+          : 'Your snoring events are steady compared with last month. Keep building your bedtime routine!';
+  const monthlyCoachTone =
+    monthlyEventChange !== null && monthlyEventChange > 0
+      ? { background: '#fff7ed', border: '#fed7aa', accent: '#ea580c' }
+      : monthlyEventChange === 0
+        ? { background: '#eff6ff', border: '#bfdbfe', accent: '#0284c7' }
+        : { background: '#ecfdf5', border: '#a7f3d0', accent: '#059669' };
   const lowBattery = deviceStatus.battery <= 20;
   const activeAlerts = [
     connected && lowBattery ? 'Low battery detected' : null,
@@ -315,11 +345,30 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0ea5e9" />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="transparent"
+            colors={['transparent']}
+            progressBackgroundColor="transparent"
+          />
         }
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.pageColumn}>
+        {refreshing ? (
+          <View style={styles.refreshHagosaurRow}>
+            <Image
+              source={require('../../assets/sleeping-dinosaur.png')}
+              style={styles.refreshHagosaur}
+              resizeMode="contain"
+            />
+            <View style={styles.refreshCopy}>
+              <Text style={styles.refreshTitle}>Hagokiller is refreshing</Text>
+              <Text style={styles.refreshText}>Checking the latest pillow readings...</Text>
+            </View>
+          </View>
+        ) : null}
         <View style={styles.header}>
           <View style={styles.headerTopRow}>
             <View style={styles.headerContent}>
@@ -534,12 +583,38 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
                     : 'Stable'}
               </Text>
             </View>
+            <View
+              style={[
+                styles.progressCoachCard,
+                {
+                  backgroundColor: monthlyCoachTone.background,
+                  borderColor: monthlyCoachTone.border,
+                },
+              ]}
+            >
+              <Image
+                source={
+                  monthlyEventChange !== null && monthlyEventChange > 0
+                    ? require('../../assets/hagosaur-monthly-increasing.png')
+                    : require('../../assets/hagosaur-monthly-progress.png')
+                }
+                style={styles.progressCoachArt}
+                resizeMode="contain"
+              />
+              <View style={styles.progressCoachCopy}>
+                <Text style={[styles.progressCoachEyebrow, { color: monthlyCoachTone.accent }]}>HAGOSAUR SAYS</Text>
+                <Text style={styles.progressCoachText}>{monthlyCoachMessage}</Text>
+              </View>
+            </View>
             {monthHistory.map((m, index) => {
               const mColor = getSeverityColor(m.severity);
               const prev = index > 0 ? monthHistory[index - 1] : null;
               const change = prev ? m.totalSnoreEvents - prev.totalSnoreEvents : 0;
               return (
                 <View key={m.month} style={styles.monthRow}>
+                  <View style={[styles.monthMarker, { borderColor: `${mColor}55` }]}>
+                    <Text style={[styles.monthMarkerText, { color: mColor }]}>{index + 1}</Text>
+                  </View>
                   <View style={styles.monthLeft}>
                     <Text style={styles.monthName}>{moment(m.month, 'YYYY-MM').format('MMMM YYYY')}</Text>
                     <View style={styles.monthSeverityBadge}>
@@ -547,6 +622,24 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
                       <Text style={[styles.monthSeverityText, { color: mColor }]}>
                         {m.severity.charAt(0).toUpperCase() + m.severity.slice(1)}
                       </Text>
+                    </View>
+                    <View style={styles.monthProgressTrack}>
+                      <View
+                        style={[
+                          styles.monthProgressFill,
+                          {
+                            backgroundColor: mColor,
+                            width: `${Math.max(
+                              8,
+                              Math.round(
+                                (m.totalSnoreEvents /
+                                  Math.max(1, ...monthHistory.map((entry) => entry.totalSnoreEvents))) *
+                                  100,
+                              ),
+                            )}%` as `${number}%`,
+                          },
+                        ]}
+                      />
                     </View>
                   </View>
                   <View style={styles.monthRight}>
@@ -607,6 +700,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   centerContent: { alignItems: 'center' },
+  loadingHagosaur: { width: 210, height: 170, marginBottom: 4 },
+  loadingTitle: { color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 4 },
   loadingText: {
     fontSize: 14,
     color: '#0ea5e9',
@@ -614,6 +709,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     letterSpacing: 0.5,
   },
+  refreshHagosaurRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  refreshHagosaur: { width: 66, height: 52, marginRight: 10 },
+  refreshCopy: { flex: 1 },
+  refreshTitle: { color: colors.text, fontSize: 13, fontWeight: '800', marginBottom: 2 },
+  refreshText: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
   errorText: {
     fontSize: 16,
     color: '#ef4444',
@@ -785,12 +896,11 @@ const styles = StyleSheet.create({
   moodMeta: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
 
   metricsSection: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
+    paddingHorizontal: 16,
+    gap: 8,
     marginBottom: 12,
   },
-  successMetric: { flexBasis: '94%' },
+  successMetric: { width: '100%' },
 
   trendSection: { marginHorizontal: 16, marginBottom: 20 },
   trendLabel: {
@@ -801,26 +911,62 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  trendCard: { overflow: 'hidden' },
+  trendCard: { overflow: 'hidden', padding: 8 },
   trendSummary: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderRadius: 12,
+    marginBottom: 4,
   },
   trendSummaryText: { fontSize: 13, fontWeight: '700' },
+  progressCoachCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 100,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 6,
+    marginBottom: 2,
+    borderRadius: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  progressCoachArt: { width: 92, height: 92, marginRight: 8 },
+  progressCoachCopy: { flex: 1 },
+  progressCoachEyebrow: {
+    color: '#059669',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  progressCoachText: { color: '#24475b', fontSize: 12, lineHeight: 18, fontWeight: '600' },
   monthRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 11,
+    marginTop: 6,
+    borderRadius: 13,
+    backgroundColor: colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  monthLeft: { flex: 1 },
+  monthMarker: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+  },
+  monthMarkerText: { fontSize: 12, fontWeight: '900' },
+  monthLeft: { flex: 1, paddingRight: 12 },
   monthName: { fontSize: 14, fontWeight: '600', color: colors.textSecondary, marginBottom: 4 },
   monthSeverityBadge: {
     flexDirection: 'row',
@@ -832,6 +978,8 @@ const styles = StyleSheet.create({
   },
   monthDot: { width: 6, height: 6, borderRadius: 3, marginRight: 5 },
   monthSeverityText: { fontSize: 11, fontWeight: '700' },
+  monthProgressTrack: { height: 4, borderRadius: 2, backgroundColor: '#e5edf4', marginTop: 8, overflow: 'hidden' },
+  monthProgressFill: { height: '100%', borderRadius: 2 },
   monthRight: { alignItems: 'flex-end' },
   monthEvents: { fontSize: 22, fontWeight: '800', color: colors.text },
   monthEventsLabel: { fontSize: 10, color: colors.textMuted, marginTop: -2 },
