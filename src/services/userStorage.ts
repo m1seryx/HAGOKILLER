@@ -1,4 +1,4 @@
-import { DailyActivityCheckIn, UserProfile, SleepEvent } from '../types';
+import { ActionFeedbackRecord, DailyActivityCheckIn, UserProfile, SleepEvent, WellnessPlanRecord } from '../types';
 import {
   initDatabase,
   dbSaveUserProfile,
@@ -20,6 +20,11 @@ import {
   dbClearUserData,
   dbSaveDailyActivityCheckIn,
   dbLoadDailyActivityCheckIn,
+  dbLoadDailyActivityCheckIns,
+  dbSaveWellnessPlan,
+  dbLoadWellnessPlans,
+  dbSaveActionFeedback,
+  dbLoadActionFeedback,
   StoredPairedDevice,
   StoredDeviceSettings,
 } from './database';
@@ -64,3 +69,13 @@ export const saveDailyActivityCheckIn = (checkIn: DailyActivityCheckIn) =>
   dbSaveDailyActivityCheckIn(checkIn);
 
 export const loadDailyActivityCheckIn = (date: string) => dbLoadDailyActivityCheckIn(date);
+
+export const loadDailyActivityCheckIns = () => dbLoadDailyActivityCheckIns();
+
+export const saveWellnessPlan = (plan: WellnessPlanRecord) => dbSaveWellnessPlan(plan);
+
+export const loadWellnessPlans = () => dbLoadWellnessPlans();
+
+export const saveActionFeedback = (record: ActionFeedbackRecord) => dbSaveActionFeedback(record);
+
+export const loadActionFeedback = () => dbLoadActionFeedback();

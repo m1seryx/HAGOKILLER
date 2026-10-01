@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,12 +11,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import moment from 'moment';
-import { DashboardData, DailyStats, MonthlyStats, UserProfile } from '../types';
+import { ActionFeedbackRecord, DailyActivityCheckIn, DashboardData, DailyStats, MonthlyStats, RecommendationData, UserProfile } from '../types';
 import {
   calculateDailyStats,
   calculateMonthlyStats,
   calculateTrend,
-  calculateInterventionEffectiveness,
   calculateDailySeverity,
 } from '../utils/statsCalculator';
 import { getSeverityColor, getSeverityLabel, getMoodStatus } from '../utils/recommendations';
@@ -31,6 +30,9 @@ import { scheduleDailyAdviceNotifications } from '../services/dailyAdviceNotific
 import { useDevice } from '../context/DeviceContext';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { colors } from '../constants/theme';
+import { loadActionFeedback, loadDailyActivityCheckIns } from '../services/userStorage';
+import { analyzeInterventionOutcomes, buildWeeklyRecap, calculateHabitCorrelations } from '../utils/wellnessAnalytics';
+import { isOnDeviceModelDownloaded, requestOnDeviceAssessmentAdvice } from '../services/onDeviceAssessment';
 
 interface DashboardScreenProps {
   userName: string;
@@ -56,6 +58,11 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const [refreshing, setRefreshing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<TimePeriod>('week');
   const [monthHistory, setMonthHistory] = useState<MonthlyStats[]>([]);
+  const [checkIns, setCheckIns] = useState<DailyActivityCheckIn[]>([]);
+  const [actionFeedback, setActionFeedback] = useState<ActionFeedbackRecord[]>([]);
+  const [weeklyAiGoals, setWeeklyAiGoals] = useState<string[] | null>(null);
+  const [weeklyAiStatus, setWeeklyAiStatus] = useState<'idle' | 'loading' | 'ready'>('idle');
+  const weeklyAiKeyRef = useRef('');
   const [deviceStatus, setDeviceStatus] = useState({
     connected: false,
     mode: 'Connecting…',
@@ -91,9 +98,15 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           // Keep last synced data if reconnect fails
         }
       }
-      const events = await bleService.fetchSleepEvents();
+      const [events, savedCheckIns, savedFeedback] = await Promise.all([
+        bleService.fetchSleepEvents(),
+        loadDailyActivityCheckIns(),
+        loadActionFeedback(),
+      ]);
       const data = calculateDashboardData(events);
       setDashboardData(data);
+      setCheckIns(savedCheckIns);
+      setActionFeedback(savedFeedback);
 
       const now = moment();
       const months: MonthlyStats[] = [];
@@ -149,6 +162,67 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     const trendValue = dashboardData.thisMonth.trend;
     scheduleDailyAdviceNotifications(severity, trendValue).catch(() => undefined);
   }, [dashboardData?.today.severity, dashboardData?.thisMonth.trend]);
+
+  useEffect(() => {
+    if (!dashboardData) return;
+    const sevenDaysAgo = moment().subtract(6, 'days').startOf('day');
+    const weeklyEvents = dashboardData.allData.filter((event) => moment(event.timestamp).isSameOrAfter(sevenDaysAgo));
+    const key = `${weeklyEvents.length}:${weeklyEvents[0]?.timestamp ?? 0}:${checkIns[0]?.updatedAt ?? 0}`;
+    if (weeklyAiKeyRef.current === key) return;
+    weeklyAiKeyRef.current = key;
+    let active = true;
+    const generateWeeklyCoach = async () => {
+      if (!(await isOnDeviceModelDownloaded())) return;
+      setWeeklyAiStatus('loading');
+      const recap = buildWeeklyRecap(dashboardData.allData);
+      const counts = new Map<string, number>();
+      checkIns.filter((item) => moment(item.date).isSameOrAfter(sevenDaysAgo, 'day')).forEach((item) => {
+        item.activities.forEach((activity) => counts.set(activity, (counts.get(activity) ?? 0) + 1));
+      });
+      const activities = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([activity]) => activity) as DailyActivityCheckIn['activities'];
+      const total = weeklyEvents.length;
+      const weeklyStats: DailyStats = {
+        date: moment().format('YYYY-MM-DD'),
+        totalSnoreEvents: total,
+        averageDuration: total ? Math.round(weeklyEvents.reduce((sum, event) => sum + event.duration, 0) / total) : 0,
+        interventionCount: weeklyEvents.filter((event) => event.interventionTriggered).length,
+        peakHour: dashboardData.today.peakHour,
+        severity: dashboardData.thisMonth.severity,
+      };
+      const fallback: RecommendationData = {
+        severityLevel: weeklyStats.severity,
+        recommendation: recap.message,
+        actionItems: recap.goals,
+        trendMessage: 'Weekly coaching based on the latest seven days.',
+        source: 'rules',
+        recommendationReasons: [`${total} snoring events were recorded during the latest seven days.`],
+      };
+      const plan = await requestOnDeviceAssessmentAdvice(
+        weeklyStats,
+        dashboardData.thisMonth,
+        {
+          date: weeklyStats.date,
+          activities,
+          otherActivityNote: 'Create three realistic weekly goals while keeping the daily wellness plan unchanged.',
+          updatedAt: Date.now(),
+        },
+        fallback,
+        actionFeedback,
+      );
+      if (!active) return;
+      if (plan.source === 'on_device') {
+        setWeeklyAiGoals(plan.actionItems.slice(0, 3));
+        setWeeklyAiStatus('ready');
+      } else {
+        setWeeklyAiStatus('idle');
+      }
+    };
+    void generateWeeklyCoach().catch(() => { if (active) setWeeklyAiStatus('idle'); });
+    return () => { active = false; };
+  }, [dashboardData, checkIns, actionFeedback]);
 
   if (loading) {
     return (
@@ -313,7 +387,16 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const { data: chartData, title: chartTitle } = getChartData();
   const severityColor = getSeverityColor(stats.severity);
   const mood = getMoodStatus(stats.severity);
-  const interventionMetrics = calculateInterventionEffectiveness(dashboardData.allData);
+  const interventionOutcomes = analyzeInterventionOutcomes(dashboardData.allData);
+  const successfulInterventions = interventionOutcomes.filter((outcome) => outcome.appearedEffective).length;
+  const interventionSuccessRatio = interventionOutcomes.length > 0
+    ? successfulInterventions / interventionOutcomes.length
+    : 0;
+  const interventionTrend = interventionSuccessRatio >= 0.6
+    ? 'improving'
+    : interventionSuccessRatio <= 0.25 ? 'worsening' : 'stable';
+  const weeklyRecap = buildWeeklyRecap(dashboardData.allData);
+  const habitCorrelations = calculateHabitCorrelations(checkIns, dashboardData.allData);
   const latestMonth = monthHistory[monthHistory.length - 1];
   const previousMonth = monthHistory[monthHistory.length - 2];
   const monthlyEventChange =
@@ -512,12 +595,12 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           />
           <StatsCard
             label="Intervention Success"
-            value={`${Math.round(interventionMetrics.successRatio * 100)}%`}
+            value={`${Math.round(interventionSuccessRatio * 100)}%`}
             icon="check-double"
             severity={
-              interventionMetrics.trend === 'improving'
+              interventionTrend === 'improving'
                 ? 'normal'
-                : interventionMetrics.trend === 'worsening'
+                : interventionTrend === 'worsening'
                   ? 'danger'
                   : 'bad'
             }
@@ -527,6 +610,73 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
 
         <View style={styles.sectionPadding}>
           <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
+        </View>
+
+        <View style={styles.insightSection}>
+          <Text style={styles.insightSectionLabel}>Your weekly Hagosaur recap</Text>
+          <View style={[styles.weeklyRecapCard, weeklyRecap.trend === 'worsening' && styles.weeklyRecapCardWatch]}>
+            <Image
+              source={weeklyRecap.trend === 'worsening'
+                ? require('../../assets/hagosaur-monthly-increasing.png')
+                : require('../../assets/hagosaur-monthly-progress.png')}
+              style={styles.weeklyRecapArt}
+              resizeMode="contain"
+              accessibilityLabel={weeklyRecap.trend === 'worsening' ? 'Hagosaur asking you to take it easy' : 'Hagosaur celebrating weekly progress'}
+            />
+            <View style={styles.weeklyRecapCopy}>
+              <Text style={styles.weeklyRecapEyebrow}>
+                {weeklyRecap.trend === 'improving' ? 'A CALMER WEEK' : weeklyRecap.trend === 'worsening' ? 'LET’S SLOW DOWN' : 'STEADY PROGRESS'}
+              </Text>
+              <Text style={styles.weeklyRecapText}>{weeklyRecap.message}</Text>
+              <View style={styles.weeklyCountRow}>
+                <Text style={styles.weeklyCount}>{weeklyRecap.currentEvents}</Text>
+                <Text style={styles.weeklyCountLabel}> events this week</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.goalCard}>
+            <Text style={styles.goalTitle}>Three goals for this week</Text>
+            <Text style={styles.weeklyAiLabel}>
+              {weeklyAiStatus === 'loading'
+                ? 'HAGOSAUR IS PERSONALIZING…'
+                : weeklyAiStatus === 'ready' ? 'PRIVATE AI COACHING' : 'SAFE WEEKLY COACHING'}
+            </Text>
+            {(weeklyAiGoals ?? weeklyRecap.goals).map((goal, index) => (
+              <View key={goal} style={styles.goalRow}>
+                <View style={styles.goalNumber}><Text style={styles.goalNumberText}>{index + 1}</Text></View>
+                <Text style={styles.goalText}>{goal}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.insightSection}>
+          <Text style={styles.insightSectionLabel}>Habit correlation</Text>
+          <View style={styles.habitCard}>
+            {habitCorrelations.length > 0 ? habitCorrelations.slice(0, 3).map((correlation) => (
+              <View key={correlation.activity} style={styles.habitRow}>
+                <View style={[styles.habitIcon, correlation.direction === 'more' ? styles.habitIconWatch : styles.habitIconGood]}>
+                  <FontAwesome5 name={correlation.direction === 'more' ? 'arrow-up' : correlation.direction === 'fewer' ? 'arrow-down' : 'minus'} size={10} color={correlation.direction === 'more' ? '#ef4444' : '#059669'} />
+                </View>
+                <View style={styles.habitCopy}>
+                  <Text style={styles.habitTitle}>{correlation.label}</Text>
+                  <Text style={styles.habitText}>{correlation.message}</Text>
+                  <Text style={styles.habitSamples}>{correlation.sampleCount} matching check-ins · {correlation.baselineCount} comparison nights</Text>
+                </View>
+              </View>
+            )) : (
+              <View style={styles.habitEmpty}>
+                <FontAwesome5 name="chart-pie" size={18} color={colors.accent} />
+                <View style={styles.habitEmptyCopy}>
+                  <Text style={styles.habitTitle}>Keep checking in</Text>
+                  <Text style={styles.habitText}>
+                    Hagosaur waits for at least 3 nights with a habit and 3 comparison nights before showing a pattern. You have {checkIns.length} saved check-in{checkIns.length === 1 ? '' : 's'}.
+                  </Text>
+                </View>
+              </View>
+            )}
+            <Text style={styles.habitDisclaimer}>Patterns show association, not medical cause.</Text>
+          </View>
         </View>
 
         <View style={styles.trendSection}>
@@ -901,6 +1051,36 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   successMetric: { width: '100%' },
+  insightSection: { marginHorizontal: 16, marginBottom: 18 },
+  insightSectionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
+  weeklyRecapCard: { minHeight: 142, flexDirection: 'row', alignItems: 'center', overflow: 'hidden', padding: 10, borderRadius: 18, backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0' },
+  weeklyRecapCardWatch: { backgroundColor: '#fff7ed', borderColor: '#fed7aa' },
+  weeklyRecapArt: { width: 118, height: 126, marginLeft: -6, marginRight: 6 },
+  weeklyRecapCopy: { flex: 1, paddingRight: 6 },
+  weeklyRecapEyebrow: { color: '#047857', fontSize: 9, fontWeight: '900', letterSpacing: 1, marginBottom: 5 },
+  weeklyRecapText: { color: '#24475b', fontSize: 12, lineHeight: 18, fontWeight: '600' },
+  weeklyCountRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 8 },
+  weeklyCount: { color: colors.text, fontSize: 20, fontWeight: '900' },
+  weeklyCountLabel: { color: colors.textMuted, fontSize: 10 },
+  goalCard: { marginTop: 8, padding: 14, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  goalTitle: { color: colors.text, fontSize: 12, fontWeight: '800', marginBottom: 10 },
+  weeklyAiLabel: { color: colors.accentDark, fontSize: 8, fontWeight: '900', letterSpacing: 0.8, marginBottom: 9 },
+  goalRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  goalNumber: { width: 22, height: 22, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft, marginRight: 9 },
+  goalNumberText: { color: colors.accentDark, fontSize: 9, fontWeight: '900' },
+  goalText: { flex: 1, color: colors.textSecondary, fontSize: 11, lineHeight: 16 },
+  habitCard: { padding: 14, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  habitRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
+  habitIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  habitIconWatch: { backgroundColor: '#fee2e2' },
+  habitIconGood: { backgroundColor: '#d1fae5' },
+  habitCopy: { flex: 1 },
+  habitTitle: { color: colors.text, fontSize: 12, fontWeight: '800' },
+  habitText: { color: colors.textSecondary, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  habitSamples: { color: colors.textMuted, fontSize: 8, marginTop: 4 },
+  habitEmpty: { flexDirection: 'row', alignItems: 'center' },
+  habitEmptyCopy: { flex: 1, marginLeft: 11 },
+  habitDisclaimer: { color: colors.textMuted, fontSize: 8, fontStyle: 'italic', marginTop: 7 },
 
   trendSection: { marginHorizontal: 16, marginBottom: 20 },
   trendLabel: {

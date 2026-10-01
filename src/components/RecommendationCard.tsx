@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { FontAwesome5 } from '@expo/vector-icons';
-import { RecommendationData } from '../types';
+import { ActionFeedbackValue, RecommendationData } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
 import { colors } from '../constants/theme';
 
@@ -22,6 +22,10 @@ interface RecommendationCardProps {
   personalizedActionsOnly?: boolean;
   guideName?: string;
   guideImage?: ImageSourcePropType;
+  actionFeedback?: Record<number, ActionFeedbackValue>;
+  onActionFeedback?: (index: number, value: ActionFeedbackValue) => void;
+  onRegenerateAction?: (index: number) => void;
+  regeneratingActionIndex?: number | null;
 }
 
 export const RecommendationCard: React.FC<RecommendationCardProps> = ({
@@ -33,11 +37,21 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
   personalizedActionsOnly = false,
   guideName,
   guideImage,
+  actionFeedback = {},
+  onActionFeedback,
+  onRegenerateAction,
+  regeneratingActionIndex = null,
 }) => {
   const severityColor = getSeverityColor(data.severityLevel);
   const hasGeneratedActions = data.source === 'on_device' || data.source === 'ai';
+  const showingImmediateActions = personalizedActionsOnly
+    && (aiStatus === 'loading' || aiStatus === 'error')
+    && data.actionItems.length > 0;
   const showActions = data.actionItems.length > 0 && (
-    !personalizedActionsOnly || hasGeneratedActions || data.severityLevel === 'danger'
+    !personalizedActionsOnly
+    || hasGeneratedActions
+    || data.severityLevel === 'danger'
+    || showingImmediateActions
   );
   const severityIcons: Record<string, string> = {
     normal: 'check-circle',
@@ -85,7 +99,9 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                 : aiStatus === 'ready'
                   ? data.source === 'on_device'
                     ? 'Private on-device AI guidance'
-                    : 'AI-personalized wellness guidance'
+                    : data.source === 'rules'
+                      ? 'Saved offline wellness guidance'
+                      : 'AI-personalized wellness guidance'
                   : aiStatus === 'error'
                     ? 'Offline guidance shown'
                     : 'Personalized guidance available'}
@@ -105,6 +121,20 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
           </View>
         ) : null}
         <Text style={styles.mainText}>{data.recommendation}</Text>
+        {data.recommendationReasons?.length ? (
+          <View style={styles.reasonPanel}>
+            <View style={styles.reasonHeading}>
+              <FontAwesome5 name="search" size={11} color={colors.accentDark} />
+              <Text style={styles.reasonTitle}>Why Hagosaur suggested this</Text>
+            </View>
+            {data.recommendationReasons.slice(0, 4).map((reason) => (
+              <View key={reason} style={styles.reasonRow}>
+                <View style={styles.reasonDot} />
+                <Text style={styles.reasonText}>{reason}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
         <Text style={[styles.mainText, { marginTop: 8, fontStyle: 'italic', color: '#333333', fontSize: 11 }]}>
           If symptoms persist, consult your doctor.
         </Text>
@@ -120,14 +150,74 @@ export const RecommendationCard: React.FC<RecommendationCardProps> = ({
                 ? `${guideName}'s therapeutic wellness actions`
                 : 'Therapeutic wellness actions'}
           </Text>
+          {showingImmediateActions ? (
+            <View style={styles.offlineNotice}>
+              {aiStatus === 'loading' ? (
+                <ActivityIndicator size="small" color={colors.accent} />
+              ) : (
+                <FontAwesome5 name="shield-alt" size={12} color={colors.accent} />
+              )}
+              <Text style={styles.offlineNoticeText}>
+                {aiStatus === 'loading'
+                  ? 'Personalizing in the background. You can use these safe actions now.'
+                  : aiError || 'Safe offline actions are shown while local AI is unavailable.'}
+              </Text>
+            </View>
+          ) : null}
           {data.actionItems.map((item, index) => (
             <View key={index} style={styles.actionItem}>
               <View style={styles.checkWrapper}>
                 <FontAwesome5 name="check" size={9} color="#0ea5e9" />
               </View>
-              <Text style={styles.actionText}>{item}</Text>
+              <View style={styles.actionContent}>
+                <Text style={styles.actionText}>{item}</Text>
+                {data.actionExplanations?.[index] ? (
+                  <Text style={styles.actionExplanation}>{data.actionExplanations[index]}</Text>
+                ) : null}
+                {onActionFeedback ? (
+                  <View style={styles.feedbackRow}>
+                    {([
+                      ['helpful', 'Helpful', 'thumbs-up'],
+                      ['not_helpful', 'Not helpful', 'thumbs-down'],
+                      ['couldnt_do', 'Couldn’t do', 'times-circle'],
+                    ] as const).map(([value, label, icon]) => {
+                      const active = actionFeedback[index] === value;
+                      return (
+                        <TouchableOpacity
+                          key={value}
+                          style={[styles.feedbackChip, active && styles.feedbackChipActive]}
+                          onPress={() => onActionFeedback(index, value)}
+                        >
+                          <FontAwesome5 name={icon} size={9} color={active ? colors.onAccent : colors.textMuted} />
+                          <Text style={[styles.feedbackChipText, active && styles.feedbackChipTextActive]}>{label}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    {onRegenerateAction ? (
+                      <TouchableOpacity
+                        style={styles.regenerateChip}
+                        onPress={() => onRegenerateAction(index)}
+                        disabled={regeneratingActionIndex !== null}
+                      >
+                        {regeneratingActionIndex === index ? (
+                          <ActivityIndicator size="small" color={colors.accent} />
+                        ) : (
+                          <FontAwesome5 name="sync-alt" size={9} color={colors.accent} />
+                        )}
+                        <Text style={styles.regenerateChipText}>Replace</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
             </View>
           ))}
+          {showingImmediateActions && aiStatus === 'error' && onRetryAi ? (
+            <TouchableOpacity style={styles.retryButton} onPress={onRetryAi} activeOpacity={0.8}>
+              <FontAwesome5 name="redo" size={11} color={colors.onAccent} />
+              <Text style={styles.retryButtonText}>Try AI again</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       )}
 
@@ -297,6 +387,19 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 18,
   },
+  reasonPanel: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reasonHeading: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 8 },
+  reasonTitle: { color: colors.text, fontSize: 11, fontWeight: '800' },
+  reasonRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 5 },
+  reasonDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.accent, marginTop: 6, marginRight: 8 },
+  reasonText: { flex: 1, color: colors.textMuted, fontSize: 10, lineHeight: 15 },
   actionsContainer: {
     padding: 16,
     borderBottomWidth: 1,
@@ -309,6 +412,21 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     marginBottom: 12,
+  },
+  offlineNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    marginBottom: 12,
+    borderRadius: 9,
+    backgroundColor: colors.backgroundSoft,
+  },
+  offlineNoticeText: {
+    flex: 1,
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
   },
   actionItem: {
     flexDirection: 'row',
@@ -331,6 +449,15 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     lineHeight: 18,
   },
+  actionContent: { flex: 1 },
+  actionExplanation: { color: colors.textMuted, fontSize: 10, lineHeight: 15, marginTop: 4 },
+  feedbackRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 8 },
+  feedbackChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 7, paddingVertical: 6, borderRadius: 8, backgroundColor: colors.backgroundSoft, borderWidth: 1, borderColor: colors.border },
+  feedbackChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  feedbackChipText: { color: colors.textMuted, fontSize: 8, fontWeight: '700', marginLeft: 4 },
+  feedbackChipTextActive: { color: colors.onAccent },
+  regenerateChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 7, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: colors.accentSoft },
+  regenerateChipText: { color: colors.accent, fontSize: 8, fontWeight: '800', marginLeft: 4 },
   pendingActions: {
     flexDirection: 'row',
     alignItems: 'flex-start',

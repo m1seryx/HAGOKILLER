@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DailyActivityCheckIn, SleepEvent, UserProfile } from '../types';
+import { ActionFeedbackRecord, DailyActivityCheckIn, SleepEvent, UserProfile, WellnessPlanRecord } from '../types';
 import { DeviceSettings, normalizeDeviceSettings } from './deviceSettings';
 
 const DB_NAME = 'hagokiller.db';
@@ -462,6 +462,8 @@ export async function dbClearSleepEvents(): Promise<void> {
 }
 
 const DAILY_ACTIVITY_KV = 'daily_activity_checkins';
+const WELLNESS_PLANS_KV = 'wellness_plan_history';
+const ACTION_FEEDBACK_KV = 'wellness_action_feedback';
 
 export async function dbSaveDailyActivityCheckIn(checkIn: DailyActivityCheckIn): Promise<void> {
   const db = await initDatabase();
@@ -494,6 +496,69 @@ export async function dbLoadDailyActivityCheckIn(date: string): Promise<DailyAct
   } catch {
     return null;
   }
+}
+
+export async function dbLoadDailyActivityCheckIns(): Promise<DailyActivityCheckIn[]> {
+  const db = await initDatabase();
+  const raw = await getKv(db, DAILY_ACTIVITY_KV);
+  if (!raw) return [];
+  try {
+    const map = JSON.parse(raw) as Record<string, DailyActivityCheckIn>;
+    return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
+  } catch {
+    return [];
+  }
+}
+
+export async function dbSaveWellnessPlan(plan: WellnessPlanRecord): Promise<void> {
+  const db = await initDatabase();
+  const raw = await getKv(db, WELLNESS_PLANS_KV);
+  let map: Record<string, WellnessPlanRecord> = {};
+  if (raw) {
+    try {
+      map = JSON.parse(raw) as Record<string, WellnessPlanRecord>;
+    } catch {
+      map = {};
+    }
+  }
+  map[plan.date] = plan;
+  const dates = Object.keys(map).sort().reverse();
+  for (const oldDate of dates.slice(30)) delete map[oldDate];
+  await setKv(db, WELLNESS_PLANS_KV, JSON.stringify(map));
+}
+
+export async function dbLoadWellnessPlans(): Promise<WellnessPlanRecord[]> {
+  const db = await initDatabase();
+  const raw = await getKv(db, WELLNESS_PLANS_KV);
+  if (!raw) return [];
+  try {
+    const map = JSON.parse(raw) as Record<string, WellnessPlanRecord>;
+    return Object.values(map).sort((a, b) => b.date.localeCompare(a.date));
+  } catch {
+    return [];
+  }
+}
+
+export async function dbSaveActionFeedback(record: ActionFeedbackRecord): Promise<void> {
+  const db = await initDatabase();
+  const raw = await getKv(db, ACTION_FEEDBACK_KV);
+  let map: Record<string, ActionFeedbackRecord> = {};
+  if (raw) {
+    try { map = JSON.parse(raw) as Record<string, ActionFeedbackRecord>; } catch { map = {}; }
+  }
+  map[record.actionKey] = record;
+  const records = Object.values(map).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+  await setKv(db, ACTION_FEEDBACK_KV, JSON.stringify(Object.fromEntries(records.map((item) => [item.actionKey, item]))));
+}
+
+export async function dbLoadActionFeedback(): Promise<ActionFeedbackRecord[]> {
+  const db = await initDatabase();
+  const raw = await getKv(db, ACTION_FEEDBACK_KV);
+  if (!raw) return [];
+  try {
+    return Object.values(JSON.parse(raw) as Record<string, ActionFeedbackRecord>)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+  } catch { return []; }
 }
 
 export async function dbClearUserData(): Promise<void> {

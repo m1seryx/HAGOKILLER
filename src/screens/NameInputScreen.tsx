@@ -41,6 +41,31 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
   const [goalModalVisible, setGoalModalVisible] = useState(false);
   const [birthField, setBirthField] = useState<BirthField | null>(null);
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
+  const starAnim = React.useRef(new Animated.Value(0.35)).current;
+  const cometAnim = React.useRef(new Animated.Value(0)).current;
+
+  React.useEffect(() => {
+    const stars = Animated.loop(
+      Animated.sequence([
+        Animated.timing(starAnim, { toValue: 1, duration: 1700, useNativeDriver: true }),
+        Animated.timing(starAnim, { toValue: 0.35, duration: 1900, useNativeDriver: true }),
+      ]),
+    );
+    const comet = Animated.loop(
+      Animated.sequence([
+        Animated.delay(1400),
+        Animated.timing(cometAnim, { toValue: 1, duration: 2300, useNativeDriver: true }),
+        Animated.delay(2600),
+        Animated.timing(cometAnim, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ]),
+    );
+    stars.start();
+    comet.start();
+    return () => {
+      stars.stop();
+      comet.stop();
+    };
+  }, [cometAnim, starAnim]);
 
   const today = moment();
   const minYear = today.year() - 80;
@@ -126,6 +151,15 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.card}>
+            <View style={styles.setupBadge}>
+              <View style={styles.setupBadgeIcon}>
+                <FontAwesome5 name="moon" size={10} color="#7dd3fc" solid />
+              </View>
+              <Text style={styles.setupBadgeText}>HAGOKILLER PROFILE SETUP</Text>
+              <View style={styles.setupBadgeDot} />
+              <Text style={styles.setupBadgeStep}>ONE STEP</Text>
+            </View>
+
             <View style={styles.heroPanel}>
               <View style={styles.heroGlow} />
               <Image
@@ -133,6 +167,52 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
                 style={styles.heroArtwork}
                 resizeMode="contain"
               />
+              <View pointerEvents="none" style={styles.skyAnimation}>
+                <Animated.View style={[styles.star, styles.starOne, { opacity: starAnim }]}>
+                  <FontAwesome5 name="star" size={8} color="#fde68a" solid />
+                </Animated.View>
+                <Animated.View
+                  style={[
+                    styles.star,
+                    styles.starTwo,
+                    { opacity: starAnim.interpolate({ inputRange: [0.35, 1], outputRange: [1, 0.3] }) },
+                  ]}
+                >
+                  <FontAwesome5 name="star" size={5} color="#7dd3fc" solid />
+                </Animated.View>
+                <Animated.View style={[styles.star, styles.starThree, { opacity: starAnim }]}>
+                  <FontAwesome5 name="star" size={6} color="#ffffff" solid />
+                </Animated.View>
+                <Animated.View
+                  style={[
+                    styles.comet,
+                    {
+                      opacity: cometAnim.interpolate({
+                        inputRange: [0, 0.08, 0.82, 1],
+                        outputRange: [0, 0.9, 0.9, 0],
+                      }),
+                      transform: [
+                        {
+                          translateX: cometAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-80, 330],
+                          }),
+                        },
+                        {
+                          translateY: cometAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-14, 74],
+                          }),
+                        },
+                        { rotate: "12deg" },
+                      ],
+                    },
+                  ]}
+                >
+                  <View style={styles.cometTail} />
+                  <View style={styles.cometHead} />
+                </Animated.View>
+              </View>
             </View>
 
             <View style={styles.textContainer}>
@@ -145,7 +225,7 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
 
             <View style={styles.formSection}>
               <View style={styles.labelRow}>
-                <FontAwesome5 name="user" size={11} color="#0284c7" solid />
+                <FontAwesome5 name="user" size={11} color="#38bdf8" solid />
                 <Text style={styles.fieldLabel}>YOUR NAME</Text>
               </View>
               <TextInput
@@ -162,7 +242,7 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
               ) : null}
 
               <View style={styles.labelRow}>
-                <FontAwesome5 name="birthday-cake" size={11} color="#0284c7" solid />
+                <FontAwesome5 name="birthday-cake" size={11} color="#38bdf8" solid />
                 <Text style={styles.fieldLabel}>BIRTHDATE</Text>
                 <Text style={styles.optionalLabel}>Optional</Text>
               </View>
@@ -189,7 +269,7 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
               ) : null}
 
               <View style={[styles.labelRow, styles.goalLabelRow]}>
-                <FontAwesome5 name="moon" size={11} color="#0284c7" solid />
+                <FontAwesome5 name="moon" size={11} color="#38bdf8" solid />
                 <Text style={styles.fieldLabel}>SLEEP GOAL</Text>
               </View>
               <TouchableOpacity
@@ -209,7 +289,7 @@ export const NameInputScreen: React.FC<NameInputScreenProps> = ({
                   </Text>
                 </View>
                 <View style={styles.chevronButton}>
-                  <FontAwesome5 name="chevron-down" size={11} color="#0284c7" />
+                  <FontAwesome5 name="chevron-down" size={11} color="#38bdf8" />
                 </View>
               </TouchableOpacity>
 
@@ -325,15 +405,15 @@ const modalStyles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   menu: {
-    backgroundColor: "#ffffff",
+    backgroundColor: colors.nightSoft,
     borderRadius: 24,
     padding: 18,
     borderWidth: 1,
-    borderColor: "rgba(14, 165, 233, 0.2)",
+    borderColor: colors.nightBorder,
     maxHeight: "70%",
   },
   modalTitle: {
-    color: "#000000",
+    color: "#f8fbff",
     fontSize: 18,
     fontWeight: "800",
     marginBottom: 8,
@@ -343,9 +423,9 @@ const modalStyles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "rgba(14, 165, 233, 0.2)",
+    borderBottomColor: colors.nightBorder,
   },
-  optionText: { color: "#111111", fontSize: 16, fontWeight: "600" },
+  optionText: { color: "#e0f2fe", fontSize: 16, fontWeight: "600" },
   backdrop: { ...StyleSheet.absoluteFillObject },
 });
 
@@ -354,71 +434,110 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.night },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: "center",
     width: "100%",
     maxWidth: 560,
     alignSelf: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 20,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 34,
   },
   card: {
-    backgroundColor: "#ffffff",
-    borderRadius: 28,
-    padding: 14,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.nightBorder,
-    shadowColor: "#164e73",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 22,
-    elevation: 3,
-  },
-  heroPanel: {
     width: "100%",
-    height: 174,
-    borderRadius: 22,
-    overflow: "hidden",
+    alignItems: "center",
+  },
+  setupBadge: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 4,
+  },
+  setupBadgeIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.night,
+    marginRight: 8,
+    backgroundColor: "rgba(14, 165, 233, 0.14)",
     borderWidth: 1,
-    borderColor: colors.nightBorder,
+    borderColor: "rgba(125, 211, 252, 0.18)",
+  },
+  setupBadgeText: { color: "#bae6fd", fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
+  setupBadgeDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: "#38bdf8", marginHorizontal: 8 },
+  setupBadgeStep: { color: "#7890aa", fontSize: 8, fontWeight: "800", letterSpacing: 1 },
+  heroPanel: {
+    width: "100%",
+    height: 210,
+    alignItems: "center",
+    justifyContent: "center",
   },
   heroGlow: {
     position: "absolute",
-    width: 210,
-    height: 110,
-    borderRadius: 110,
-    backgroundColor: "rgba(14, 165, 233, 0.16)",
+    width: 260,
+    height: 130,
+    borderRadius: 130,
+    backgroundColor: "rgba(14, 165, 233, 0.11)",
   },
-  heroArtwork: { width: "96%", height: "142%" },
-  textContainer: { alignItems: "center", paddingHorizontal: 16, paddingTop: 20, paddingBottom: 18 },
-  eyebrow: { color: "#0284c7", fontSize: 10, fontWeight: "800", letterSpacing: 1.6, marginBottom: 7 },
-  title: { fontSize: 27, fontWeight: "900", color: "#10243e", marginBottom: 7, letterSpacing: 0.2 },
-  subtitle: { fontSize: 13, color: "#58708c", textAlign: "center", lineHeight: 19, maxWidth: 300 },
+  heroArtwork: { width: "116%", height: "116%" },
+  skyAnimation: { ...StyleSheet.absoluteFillObject, overflow: "hidden", borderRadius: 28 },
+  star: { position: "absolute", shadowColor: "#ffffff", shadowOpacity: 0.8, shadowRadius: 5 },
+  starOne: { left: "15%", top: "28%" },
+  starTwo: { right: "14%", top: "23%" },
+  starThree: { right: "24%", bottom: "22%" },
+  comet: {
+    position: "absolute",
+    left: 0,
+    top: 34,
+    width: 62,
+    height: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  cometTail: {
+    width: 54,
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: "#7dd3fc",
+    shadowColor: "#38bdf8",
+    shadowOpacity: 0.9,
+    shadowRadius: 5,
+  },
+  cometHead: {
+    width: 7,
+    height: 7,
+    marginLeft: -1,
+    borderRadius: 4,
+    backgroundColor: "#fef3c7",
+    shadowColor: "#fde68a",
+    shadowOpacity: 1,
+    shadowRadius: 6,
+  },
+  textContainer: { alignItems: "flex-start", width: "100%", paddingTop: 2, paddingBottom: 22 },
+  eyebrow: { color: "#38bdf8", fontSize: 9, fontWeight: "900", letterSpacing: 1.8, marginBottom: 7 },
+  title: { fontSize: 29, fontWeight: "900", color: "#f8fbff", marginBottom: 7, letterSpacing: 0.1 },
+  subtitle: { fontSize: 13, color: "#a9bfdf", lineHeight: 19, maxWidth: 330 },
   formSection: {
     width: "100%",
-    borderRadius: 20,
-    backgroundColor: "#f8fbff",
+    borderRadius: 24,
+    backgroundColor: "rgba(16, 36, 66, 0.72)",
     borderWidth: 1,
-    borderColor: "#e1edf7",
-    padding: 16,
+    borderColor: colors.nightBorder,
+    padding: 18,
   },
   labelRow: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 8 },
-  fieldLabel: { color: "#3e5875", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
-  optionalLabel: { marginLeft: "auto", color: "#7890aa", fontSize: 10, fontWeight: "600" },
+  fieldLabel: { color: "#bae6fd", fontSize: 10, fontWeight: "800", letterSpacing: 1 },
+  optionalLabel: { marginLeft: "auto", color: "#7e97b8", fontSize: 10, fontWeight: "600" },
   input: {
     width: "100%",
-    backgroundColor: "#ffffff",
+    backgroundColor: "rgba(7, 17, 38, 0.76)",
     borderRadius: 14,
     paddingHorizontal: 15,
     paddingVertical: 14,
     fontSize: 15,
     fontWeight: "600",
-    color: "#10243e",
+    color: "#f8fbff",
     borderWidth: 1,
-    borderColor: "#cfe0ee",
+    borderColor: colors.nightBorder,
     marginBottom: 17,
   },
   inputError: { borderColor: "rgba(239, 68, 68, 0.6)" },
@@ -426,16 +545,16 @@ const styles = StyleSheet.create({
   birthRow: { flexDirection: "row", gap: 8 },
   birthSelect: {
     flex: 1,
-    backgroundColor: "#ffffff",
+    backgroundColor: "rgba(7, 17, 38, 0.76)",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#cfe0ee",
+    borderColor: colors.nightBorder,
     paddingHorizontal: 10,
     paddingVertical: 12,
   },
   birthSelectHint: { color: "#7890aa", fontSize: 10, marginBottom: 4 },
-  birthSelectValue: { color: "#10243e", fontSize: 13, fontWeight: "700" },
-  clearBirth: { color: "#0284c7", fontSize: 12, fontWeight: "600", marginTop: 10, textAlign: "center" },
+  birthSelectValue: { color: "#f8fbff", fontSize: 13, fontWeight: "700" },
+  clearBirth: { color: "#38bdf8", fontSize: 12, fontWeight: "700", marginTop: 10, textAlign: "center" },
   goalLabelRow: { marginTop: 18 },
   goalSelect: {
     width: "100%",
@@ -443,33 +562,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#ffffff",
+    backgroundColor: "rgba(7, 17, 38, 0.76)",
     borderRadius: 14,
     paddingHorizontal: 15,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: "#cfe0ee",
+    borderColor: colors.nightBorder,
     marginBottom: 16,
   },
   goalHint: { color: "#7890aa", fontSize: 10, marginBottom: 3 },
-  goalValue: { color: "#10243e", fontSize: 15, fontWeight: "800" },
+  goalValue: { color: "#f8fbff", fontSize: 15, fontWeight: "800" },
   chevronButton: {
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: "#e8f6fd",
+    backgroundColor: "rgba(14, 165, 233, 0.16)",
     alignItems: "center",
     justifyContent: "center",
   },
   customGoalInput: {
     width: "100%",
-    backgroundColor: "#ffffff",
+    backgroundColor: "rgba(7, 17, 38, 0.76)",
     borderRadius: 14,
     paddingHorizontal: 15,
     paddingVertical: 13,
-    color: "#10243e",
+    color: "#f8fbff",
     borderWidth: 1,
-    borderColor: "#cfe0ee",
+    borderColor: colors.nightBorder,
     marginTop: -7,
     marginBottom: 16,
   },
@@ -487,7 +606,7 @@ const styles = StyleSheet.create({
     shadowRadius: 9,
     elevation: 3,
   },
-  buttonDisabled: { backgroundColor: "#dcecf6", shadowOpacity: 0, elevation: 0 },
+  buttonDisabled: { backgroundColor: "#203959", shadowOpacity: 0, elevation: 0 },
   buttonText: { fontSize: 15, fontWeight: "700", color: "#ffffff", letterSpacing: 0.5 },
   buttonTextDisabled: { color: "#7890aa" },
   buttonIcon: { marginLeft: 9, marginTop: 2 },

@@ -17,7 +17,7 @@ import moment from 'moment';
 import { NightDetailCard } from '../components/NightDetailCard';
 import { bleService } from '../services/bleService';
 import { SleepEvent } from '../types';
-import { calculateNightDetail, listRecentNightKeys } from '../utils/statsCalculator';
+import { calculateNightDetail, getNightKey, listRecentNightKeys } from '../utils/statsCalculator';
 import { colors } from '../constants/theme';
 import { registerNightExitAnimation } from '../services/nightTabTransition';
 
@@ -221,6 +221,10 @@ export const NightDetailScreen = () => {
     () => calculateNightDetail(events, activeNightKey),
     [events, activeNightKey],
   );
+  const activeNightEvents = useMemo(
+    () => events.filter((event) => getNightKey(event.timestamp) === activeNightKey),
+    [events, activeNightKey],
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -299,6 +303,7 @@ export const NightDetailScreen = () => {
               nightKeys={nightKeys}
               selectedKey={activeNightKey}
               onSelectNight={setSelectedNightKey}
+              events={activeNightEvents}
             />
           </View>
         </ScrollView>

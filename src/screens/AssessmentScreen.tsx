@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,11 @@ import {
   RefreshControl,
   KeyboardAvoidingView,
   Platform,
+  TouchableOpacity,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import moment from 'moment';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { GlassCard } from '../components/GlassCard';
@@ -26,13 +27,19 @@ import { bleService } from '../services/bleService';
 import { calculateDashboardData } from '../services/mockBLEService';
 import {
   loadDailyActivityCheckIn,
+  loadActionFeedback,
+  loadWellnessPlans,
+  saveActionFeedback,
   saveDailyActivityCheckIn,
+  saveWellnessPlan,
 } from '../services/userStorage';
 import { getRecommendations } from '../utils/recommendations';
 import {
   downloadOnDeviceModel,
+  getOnDeviceModelPreference,
   isOnDeviceAiSupported,
   isOnDeviceModelDownloaded,
+  ON_DEVICE_MODEL_SPECS,
   requestOnDeviceAssessmentAdvice,
 } from '../services/onDeviceAssessment';
 import {
@@ -43,8 +50,40 @@ import {
 } from '../services/modelDownloadNotifications';
 import { colors } from '../constants/theme';
 import { DailyActivityCheckIn, DailyStats, MonthlyStats, RecommendationData } from '../types';
+import type { ActionFeedbackRecord, ActionFeedbackValue } from '../types';
+import type { OnDeviceModelTier } from '../types';
+import { actionKey, actionsAreSimilar } from '../utils/wellnessKnowledge';
+import { notifyPersonalizedPlanReady } from '../services/assessmentNotifications';
+
+const assessmentAdviceCache = new Map<string, RecommendationData>();
+const ASSESSMENT_PLAN_VERSION = 2;
+
+const keepExistingWhenEqual = <T,>(current: T | null, next: T | null): T | null => (
+  JSON.stringify(current) === JSON.stringify(next) ? current : next
+);
+
+const buildAssessmentInputKey = (
+  daily: DailyStats,
+  monthly: MonthlyStats,
+  dailyCheckIn: DailyActivityCheckIn | null,
+): string => JSON.stringify({
+  planVersion: ASSESSMENT_PLAN_VERSION,
+  daily,
+  monthly,
+  checkIn: dailyCheckIn
+    ? {
+        date: dailyCheckIn.date,
+        activities: dailyCheckIn.activities,
+        otherActivityNote: dailyCheckIn.otherActivityNote ?? null,
+        sleepFeeling: dailyCheckIn.sleepFeeling ?? null,
+        sleepHours: dailyCheckIn.sleepHours ?? null,
+        mouthBreathing: dailyCheckIn.mouthBreathing ?? null,
+      }
+    : null,
+});
 
 export const AssessmentScreen = () => {
+  const navigation = useNavigation<any>();
   const { width } = useWindowDimensions();
   const compact = width < 380;
   const [loading, setLoading] = useState(true);
@@ -59,25 +98,39 @@ export const AssessmentScreen = () => {
   const [modelStatus, setModelStatus] = useState<OnDeviceModelStatus>('checking');
   const [modelProgress, setModelProgress] = useState(0);
   const [modelError, setModelError] = useState('');
+  const [modelTier, setModelTier] = useState<OnDeviceModelTier>('compact');
+  const [feedbackRecords, setFeedbackRecords] = useState<ActionFeedbackRecord[]>([]);
+  const [feedbackLoaded, setFeedbackLoaded] = useState(false);
+  const feedbackRef = useRef<ActionFeedbackRecord[]>([]);
+  const [regeneratingActionIndex, setRegeneratingActionIndex] = useState<number | null>(null);
+  const [hydratedPlanKey, setHydratedPlanKey] = useState('');
+  const hasLoadedOnce = useRef(false);
   const todayDate = moment().format('YYYY-MM-DD');
 
   const load = useCallback(async () => {
-    const [events, savedCheckIn] = await Promise.all([
+    const [events, savedCheckIn, savedFeedback] = await Promise.all([
       bleService.fetchSleepEvents(),
       loadDailyActivityCheckIn(todayDate),
+      loadActionFeedback(),
     ]);
     const data = calculateDashboardData(events);
-    setToday(data.today);
-    setMonth(data.thisMonth);
-    setCheckIn(savedCheckIn);
+    setToday((current) => keepExistingWhenEqual(current, data.today));
+    setMonth((current) => keepExistingWhenEqual(current, data.thisMonth));
+    setCheckIn((current) => keepExistingWhenEqual(current, savedCheckIn));
+    feedbackRef.current = savedFeedback;
+    setFeedbackRecords(savedFeedback);
+    setFeedbackLoaded(true);
   }, [todayDate]);
 
   useFocusEffect(
     useCallback(() => {
-      setLoading(true);
+      if (!hasLoadedOnce.current) setLoading(true);
       load()
         .catch(() => undefined)
-        .finally(() => setLoading(false));
+        .finally(() => {
+          hasLoadedOnce.current = true;
+          setLoading(false);
+        });
     }, [load]),
   );
 
@@ -108,14 +161,42 @@ export const AssessmentScreen = () => {
     [today, month, checkIn, todayDate],
   );
 
+  const assessmentInputKey = useMemo(
+    () => (today && month ? buildAssessmentInputKey(today, month, checkIn) : ''),
+    [today, month, checkIn],
+  );
+
+  useEffect(() => {
+    if (!assessmentInputKey) return undefined;
+    let active = true;
+    setHydratedPlanKey('');
+    loadWellnessPlans()
+      .then((plans) => {
+        if (!active) return;
+        const saved = plans.find((plan) => plan.date === todayDate && plan.inputKey === assessmentInputKey);
+        if (saved) {
+          assessmentAdviceCache.set(assessmentInputKey, saved.recommendation);
+          setAiRecommendation(saved.recommendation);
+          setAiStatus('ready');
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setHydratedPlanKey(assessmentInputKey);
+      });
+    return () => { active = false; };
+  }, [assessmentInputKey, todayDate]);
+
   useEffect(() => {
     if (!isOnDeviceAiSupported()) {
       setModelStatus('unsupported');
       return undefined;
     }
     let active = true;
-    isOnDeviceModelDownloaded()
-      .then((downloaded) => {
+    getOnDeviceModelPreference()
+      .then(async (tier) => {
+        setModelTier(tier);
+        const downloaded = await isOnDeviceModelDownloaded(tier);
         if (active) setModelStatus(downloaded ? 'ready' : 'missing');
       })
       .catch(() => {
@@ -147,35 +228,131 @@ export const AssessmentScreen = () => {
   };
 
   useEffect(() => {
-    setAiRecommendation(null);
-    if (!today || !month || !fallbackRecommendations || modelStatus !== 'ready') {
+    if (!today || !month || !fallbackRecommendations || !feedbackLoaded) {
+      setAiRecommendation(null);
       setAiStatus('idle');
       return undefined;
     }
-    if (today.severity === 'danger') {
+    if (hydratedPlanKey !== assessmentInputKey) {
+      setAiStatus('idle');
+      return undefined;
+    }
+
+    const cachedAdvice = assessmentAdviceCache.get(assessmentInputKey);
+    if (cachedAdvice) {
+      setAiRecommendation(cachedAdvice);
+      setAiStatus('ready');
+      setAiError('');
+      return undefined;
+    }
+
+    if (modelStatus !== 'ready' || today.severity === 'danger') {
+      setAiRecommendation(null);
       setAiStatus('idle');
       return undefined;
     }
 
     let active = true;
+    setAiRecommendation(null);
     setAiStatus('loading');
     setAiError('');
-    requestOnDeviceAssessmentAdvice(today, month, checkIn, fallbackRecommendations)
+    requestOnDeviceAssessmentAdvice(today, month, checkIn, fallbackRecommendations, feedbackRef.current)
       .then((advice) => {
         if (active) {
+          assessmentAdviceCache.set(assessmentInputKey, advice);
           setAiRecommendation(advice);
           setAiStatus('ready');
+          if (advice.source === 'on_device') void notifyPersonalizedPlanReady();
         }
       })
       .catch((error) => {
         if (active) {
-          const message = error instanceof Error ? error.message : 'Unknown on-device AI error.';
+          const rawMessage = error instanceof Error ? error.message.trim() : '';
+          const message = !rawMessage || /unknown|hostfunction/i.test(rawMessage)
+            ? 'The local AI could not run on this phone. Safe offline actions are shown instead.'
+            : rawMessage;
           setAiError(message.slice(0, 240));
           setAiStatus('error');
         }
       });
     return () => { active = false; };
-  }, [today, month, checkIn, fallbackRecommendations, modelStatus, aiRetryNonce]);
+  }, [today, month, checkIn, fallbackRecommendations, assessmentInputKey, hydratedPlanKey, feedbackLoaded, modelStatus, aiRetryNonce]);
+
+  const retryAi = () => {
+    assessmentAdviceCache.delete(assessmentInputKey);
+    setAiRetryNonce((value) => value + 1);
+  };
+
+  const visibleRecommendation = aiRecommendation ?? fallbackRecommendations;
+
+  const visibleActionFeedback = useMemo(() => {
+    const result: Record<number, ActionFeedbackValue> = {};
+    visibleRecommendation?.actionItems.forEach((action, index) => {
+      const saved = feedbackRecords.find((record) => record.actionKey === actionKey(action));
+      if (saved) result[index] = saved.feedback;
+    });
+    return result;
+  }, [visibleRecommendation, feedbackRecords]);
+
+  const handleActionFeedback = async (index: number, feedback: ActionFeedbackValue) => {
+    const action = visibleRecommendation?.actionItems[index];
+    if (!action) return;
+    const record: ActionFeedbackRecord = {
+      actionKey: actionKey(action),
+      actionText: action,
+      feedback,
+      planDate: todayDate,
+      updatedAt: Date.now(),
+    };
+    await saveActionFeedback(record);
+    setFeedbackRecords((current) => [record, ...current.filter((item) => item.actionKey !== record.actionKey)]);
+    feedbackRef.current = [record, ...feedbackRef.current.filter((item) => item.actionKey !== record.actionKey)];
+  };
+
+  const regenerateOneAction = async (index: number) => {
+    if (!today || !month || !fallbackRecommendations || !visibleRecommendation || regeneratingActionIndex !== null) return;
+    const previousAction = visibleRecommendation.actionItems[index];
+    if (!previousAction) return;
+    setRegeneratingActionIndex(index);
+    const negativeRecord: ActionFeedbackRecord = {
+      actionKey: actionKey(previousAction), actionText: previousAction, feedback: 'not_helpful', planDate: todayDate, updatedAt: Date.now(),
+    };
+    try {
+      await saveActionFeedback(negativeRecord);
+      const memory = [negativeRecord, ...feedbackRef.current.filter((item) => item.actionKey !== negativeRecord.actionKey)];
+      feedbackRef.current = memory;
+      setFeedbackRecords(memory);
+      const replacementPlan = await requestOnDeviceAssessmentAdvice(today, month, checkIn, fallbackRecommendations, memory);
+      const replacementIndex = replacementPlan.actionItems.findIndex((candidate) => (
+        !actionsAreSimilar(candidate, previousAction)
+        && !visibleRecommendation.actionItems.some((existing, existingIndex) => existingIndex !== index && actionsAreSimilar(candidate, existing))
+      ));
+      if (replacementIndex < 0) return;
+      const actionItems = [...visibleRecommendation.actionItems];
+      const actionExplanations = [...(visibleRecommendation.actionExplanations ?? [])];
+      actionItems[index] = replacementPlan.actionItems[replacementIndex];
+      actionExplanations[index] = replacementPlan.actionExplanations?.[replacementIndex] ?? 'Suggested from your current sleep and check-in data.';
+      const updated = { ...visibleRecommendation, actionItems, actionExplanations };
+      assessmentAdviceCache.set(assessmentInputKey, updated);
+      setAiRecommendation(updated);
+    } finally {
+      setRegeneratingActionIndex(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!visibleRecommendation || !assessmentInputKey || !today || hydratedPlanKey !== assessmentInputKey) return;
+    const waitingForAi = modelStatus === 'ready'
+      && today.severity !== 'danger'
+      && aiStatus === 'loading';
+    if (waitingForAi) return;
+    void saveWellnessPlan({
+      date: todayDate,
+      inputKey: assessmentInputKey,
+      createdAt: Date.now(),
+      recommendation: visibleRecommendation,
+    }).catch(() => undefined);
+  }, [visibleRecommendation, assessmentInputKey, hydratedPlanKey, today, todayDate, modelStatus, aiStatus]);
 
   if (loading || !today || !month) {
     return (
@@ -186,7 +363,7 @@ export const AssessmentScreen = () => {
     );
   }
 
-  const recommendations = aiRecommendation ?? fallbackRecommendations;
+  const recommendations = visibleRecommendation;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -247,11 +424,32 @@ export const AssessmentScreen = () => {
           aiStatus={aiStatus}
           aiEnabled={modelStatus === 'ready' && today.severity !== 'danger'}
           aiError={aiError}
-          onRetryAi={() => setAiRetryNonce((value) => value + 1)}
+          onRetryAi={retryAi}
           personalizedActionsOnly
           guideName="Hagosaur"
           guideImage={require('../../assets/hagosaur-wellness-guide.png')}
+          actionFeedback={visibleActionFeedback}
+          onActionFeedback={handleActionFeedback}
+          onRegenerateAction={regenerateOneAction}
+          regeneratingActionIndex={regeneratingActionIndex}
         />
+
+        <TouchableOpacity
+          style={styles.historyButton}
+          onPress={() => navigation.navigate('WellnessPlanHistory')}
+          activeOpacity={0.84}
+          accessibilityRole="button"
+          accessibilityLabel="Open wellness plan history"
+        >
+          <View style={styles.historyIcon}>
+            <FontAwesome5 name="history" size={14} color={colors.accent} />
+          </View>
+          <View style={styles.historyCopy}>
+            <Text style={styles.historyTitle}>Plan history</Text>
+            <Text style={styles.historyText}>Review your saved daily wellness plans</Text>
+          </View>
+          <FontAwesome5 name="chevron-right" size={12} color={colors.textMuted} />
+        </TouchableOpacity>
 
         {modelStatus !== 'ready' ? (
           <OnDeviceAiCard
@@ -259,6 +457,7 @@ export const AssessmentScreen = () => {
             progress={modelProgress}
             error={modelError}
             onDownload={handleDownloadModel}
+            modelSizeMb={ON_DEVICE_MODEL_SPECS[modelTier].sizeMb}
           />
         ) : null}
 
@@ -352,4 +551,15 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   guidanceTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  historyButton: {
+    flexDirection: 'row', alignItems: 'center', padding: 14, marginBottom: 16,
+    borderRadius: 14, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+  },
+  historyIcon: {
+    width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.backgroundSoft, marginRight: 11,
+  },
+  historyCopy: { flex: 1 },
+  historyTitle: { color: colors.text, fontSize: 13, fontWeight: '800' },
+  historyText: { color: colors.textMuted, fontSize: 10, marginTop: 3 },
 });

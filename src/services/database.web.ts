@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DailyActivityCheckIn, SleepEvent, UserProfile } from '../types';
+import { ActionFeedbackRecord, DailyActivityCheckIn, SleepEvent, UserProfile, WellnessPlanRecord } from '../types';
 import { DeviceSettings, normalizeDeviceSettings } from './deviceSettings';
 
 const PROFILE_KEY = '@hagokiller_profile';
@@ -9,6 +9,8 @@ const NOTIFICATIONS_KEY = '@hagokiller_notifications';
 const SETTINGS_KEY = '@hagokiller_device_settings';
 const EVENTS_KEY = '@hagokiller_sleep_events';
 const DAILY_ACTIVITY_KEY = '@hagokiller_daily_activity';
+const WELLNESS_PLANS_KEY = '@hagokiller_wellness_plans';
+const ACTION_FEEDBACK_KEY = '@hagokiller_action_feedback';
 
 export interface StoredPairedDevice {
   id: string;
@@ -136,6 +138,36 @@ export async function dbLoadDailyActivityCheckIn(date: string): Promise<DailyAct
   return map?.[date] ?? null;
 }
 
+export async function dbLoadDailyActivityCheckIns(): Promise<DailyActivityCheckIn[]> {
+  const map = await parseJson<Record<string, DailyActivityCheckIn>>(DAILY_ACTIVITY_KEY);
+  return Object.values(map ?? {}).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export async function dbSaveWellnessPlan(plan: WellnessPlanRecord): Promise<void> {
+  const map = (await parseJson<Record<string, WellnessPlanRecord>>(WELLNESS_PLANS_KEY)) ?? {};
+  map[plan.date] = plan;
+  const dates = Object.keys(map).sort().reverse();
+  for (const oldDate of dates.slice(30)) delete map[oldDate];
+  await AsyncStorage.setItem(WELLNESS_PLANS_KEY, JSON.stringify(map));
+}
+
+export async function dbLoadWellnessPlans(): Promise<WellnessPlanRecord[]> {
+  const map = await parseJson<Record<string, WellnessPlanRecord>>(WELLNESS_PLANS_KEY);
+  return Object.values(map ?? {}).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export async function dbSaveActionFeedback(record: ActionFeedbackRecord): Promise<void> {
+  const map = (await parseJson<Record<string, ActionFeedbackRecord>>(ACTION_FEEDBACK_KEY)) ?? {};
+  map[record.actionKey] = record;
+  const records = Object.values(map).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 100);
+  await AsyncStorage.setItem(ACTION_FEEDBACK_KEY, JSON.stringify(Object.fromEntries(records.map((item) => [item.actionKey, item]))));
+}
+
+export async function dbLoadActionFeedback(): Promise<ActionFeedbackRecord[]> {
+  const map = await parseJson<Record<string, ActionFeedbackRecord>>(ACTION_FEEDBACK_KEY);
+  return Object.values(map ?? {}).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
 export async function dbClearUserData(): Promise<void> {
   await AsyncStorage.multiRemove([
     PROFILE_KEY,
@@ -145,5 +177,7 @@ export async function dbClearUserData(): Promise<void> {
     SETTINGS_KEY,
     EVENTS_KEY,
     DAILY_ACTIVITY_KEY,
+    WELLNESS_PLANS_KEY,
+    ACTION_FEEDBACK_KEY,
   ]);
 }

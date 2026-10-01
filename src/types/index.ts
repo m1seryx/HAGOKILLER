@@ -119,6 +119,29 @@ export interface RecommendationData {
   checkInComplete?: boolean;
   /** Whether the visible advice came from local safety rules or the AI service. */
   source?: 'rules' | 'ai' | 'on_device';
+  /** Plain-language sensor and check-in evidence behind this plan. */
+  recommendationReasons?: string[];
+  /** Explanation aligned by index with actionItems. */
+  actionExplanations?: string[];
+}
+
+export type ActionFeedbackValue = 'helpful' | 'not_helpful' | 'couldnt_do';
+
+export interface ActionFeedbackRecord {
+  actionKey: string;
+  actionText: string;
+  feedback: ActionFeedbackValue;
+  planDate: string;
+  updatedAt: number;
+}
+
+export type OnDeviceModelTier = 'compact' | 'enhanced';
+
+export interface WellnessPlanRecord {
+  date: string;
+  inputKey: string;
+  createdAt: number;
+  recommendation: RecommendationData;
 }
 
 export interface BLEDevice {

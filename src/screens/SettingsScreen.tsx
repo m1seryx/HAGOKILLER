@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
+import moment from 'moment';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { GlassCard } from '../components/GlassCard';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -33,9 +34,10 @@ import {
   cancelDailyAdviceNotifications,
   scheduleDailyAdviceNotifications,
 } from '../services/dailyAdviceNotifications';
-import { BLEDevice } from '../types';
+import { BLEDevice, OnDeviceModelTier } from '../types';
 import { isValidPairingPin } from '../utils/pinValidation';
 import { colors } from '../constants/theme';
+import { loadSleepEvents } from '../services/userStorage';
 import {
   PUMP_DURATION_MAX_SEC,
   PUMP_DURATION_MIN_SEC,
@@ -47,7 +49,9 @@ import {
 import type { PillowCommand } from '../services/esp32Protocol';
 import {
   isOnDeviceAiSupported,
-  ON_DEVICE_MODEL_SIZE_MB,
+  getDeviceModelRecommendation,
+  getOnDeviceModelPreference,
+  ON_DEVICE_MODEL_SPECS,
   repairOnDeviceModel,
 } from '../services/onDeviceAssessment';
 import {
@@ -135,6 +139,8 @@ export const SettingsScreen = () => {
   const [repairConfirmVisible, setRepairConfirmVisible] = useState(false);
   const [modelRepairProgress, setModelRepairProgress] = useState(0);
   const [modelRepairMessage, setModelRepairMessage] = useState('');
+  const [selectedModelTier, setSelectedModelTier] = useState<OnDeviceModelTier>('compact');
+  const [lastPillowSync, setLastPillowSync] = useState<number | null>(null);
   const pinRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -157,6 +163,7 @@ export const SettingsScreen = () => {
     hydrateNotificationPref()
       .then(setNotificationsOn)
       .finally(() => setLoading(false));
+    getOnDeviceModelPreference().then(setSelectedModelTier).catch(() => undefined);
   }, [loadStoredSettings]);
 
   useFocusEffect(
@@ -164,6 +171,9 @@ export const SettingsScreen = () => {
       if (!settingsDirtyRef.current) {
         loadStoredSettings();
       }
+      loadSleepEvents()
+        .then((events) => setLastPillowSync(events[0]?.timestamp ?? null))
+        .catch(() => setLastPillowSync(null));
     }, [loadStoredSettings]),
   );
 
@@ -318,7 +328,7 @@ export const SettingsScreen = () => {
     }
   };
 
-  const runModelRepair = async () => {
+  const runModelRepair = async (tier: OnDeviceModelTier = selectedModelTier) => {
     setModelRepairStatus('downloading');
     setModelRepairProgress(0);
     setModelRepairMessage('');
@@ -327,7 +337,8 @@ export const SettingsScreen = () => {
       await repairOnDeviceModel((progress) => {
         setModelRepairProgress(progress);
         updateModelDownloadNotification(progress);
-      });
+      }, tier);
+      setSelectedModelTier(tier);
       setModelRepairStatus('success');
       setModelRepairMessage('AI model repaired successfully. Assessment guidance is ready.');
       await completeModelDownloadNotification();
@@ -346,6 +357,22 @@ export const SettingsScreen = () => {
     setRepairConfirmVisible(true);
   };
 
+  const chooseModelTier = (tier: OnDeviceModelTier) => {
+    if (!isOnDeviceAiSupported()) {
+      Alert.alert('Native build required', 'Local model downloads require an installed development or EAS build.');
+      return;
+    }
+    const spec = ON_DEVICE_MODEL_SPECS[tier];
+    Alert.alert(
+      `Use ${spec.label}?`,
+      `This downloads approximately ${spec.sizeMb} MB. Keep the app open and use Wi-Fi.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Download', onPress: () => { void runModelRepair(tier); } },
+      ],
+    );
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -359,6 +386,12 @@ export const SettingsScreen = () => {
 
   const statusColor = connected ? '#10b981' : pairedDevice ? '#f59e0b' : '#94a3b8';
   const statusLabel = connected ? 'Connected' : pairedDevice ? 'Paired · Offline' : 'Not paired';
+  const signalQuality = !pairedDevice
+    ? 'Unavailable'
+    : pairedDevice.signalStrength >= -60
+      ? 'Strong'
+      : pairedDevice.signalStrength >= -75 ? 'Fair' : 'Weak';
+  const healthNeedsAttention = !connected || signalQuality === 'Weak';
   const pinDigits = Array.from({ length: PIN_LENGTH }, (_, i) => pin[i] || '');
 
   return (
@@ -457,9 +490,37 @@ export const SettingsScreen = () => {
             <Text style={styles.cardTitle}>On-device AI model</Text>
           </View>
           <Text style={styles.cardHint}>
-            Repair the model if Assessment cannot generate actions or if the downloaded file may be incomplete.
-            This securely replaces it with a fresh {ON_DEVICE_MODEL_SIZE_MB} MB copy.
+            Choose a model that fits this phone. Your selected model runs privately without sending sleep data to a server.
           </Text>
+          <View style={styles.memoryRecommendation}>
+            <FontAwesome5 name="mobile-alt" size={13} color={colors.accentDark} />
+            <View style={styles.memoryRecommendationCopy}>
+              <Text style={styles.memoryRecommendationTitle}>
+                Recommended: {ON_DEVICE_MODEL_SPECS[getDeviceModelRecommendation().recommendedTier].label}
+              </Text>
+              <Text style={styles.memoryRecommendationText}>{getDeviceModelRecommendation().reason}</Text>
+            </View>
+          </View>
+          <View style={styles.modelOptions}>
+            {(['compact', 'enhanced'] as OnDeviceModelTier[]).map((tier) => {
+              const spec = ON_DEVICE_MODEL_SPECS[tier];
+              const active = selectedModelTier === tier;
+              return (
+                <TouchableOpacity
+                  key={tier}
+                  style={[styles.modelOption, active && styles.modelOptionActive]}
+                  onPress={() => chooseModelTier(tier)}
+                  disabled={modelRepairStatus === 'downloading'}
+                >
+                  <View style={styles.modelOptionTop}>
+                    <Text style={styles.modelOptionTitle}>{spec.label}</Text>
+                    {active ? <Text style={styles.modelActiveBadge}>ACTIVE</Text> : null}
+                  </View>
+                  <Text style={styles.modelOptionMeta}>{spec.sizeMb} MB · {tier === 'compact' ? 'Fastest and most compatible' : 'Stronger wording and reasoning'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
           {modelRepairStatus === 'downloading' ? (
             <View style={styles.modelProgressWrap}>
               <View style={styles.modelProgressTrack}>
@@ -490,7 +551,7 @@ export const SettingsScreen = () => {
             ) : (
               <>
                 <FontAwesome5 name="sync-alt" size={13} color={colors.onAccent} />
-                <Text style={styles.testButtonText}>Repair AI model</Text>
+                <Text style={styles.testButtonText}>Repair selected model ({ON_DEVICE_MODEL_SPECS[selectedModelTier].sizeMb} MB)</Text>
               </>
             )}
           </TouchableOpacity>
@@ -605,6 +666,40 @@ export const SettingsScreen = () => {
               ))}
             </View>
           ) : null}
+        </GlassCard>
+
+        <GlassCard style={styles.card}>
+          <View style={styles.healthHeader}>
+            <View style={styles.deviceTitleRow}>
+              <FontAwesome5 name="heartbeat" size={16} color={healthNeedsAttention ? '#f59e0b' : '#10b981'} />
+              <Text style={styles.cardTitle}>Hagokiller device health</Text>
+            </View>
+            <View style={[styles.badge, { backgroundColor: healthNeedsAttention ? '#f59e0b22' : '#10b98122' }]}>
+              <View style={[styles.dot, { backgroundColor: healthNeedsAttention ? '#f59e0b' : '#10b981' }]} />
+              <Text style={[styles.badgeText, { color: healthNeedsAttention ? '#b45309' : '#047857' }]}>
+                {healthNeedsAttention ? 'Check connection' : 'Ready'}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.cardHint}>Connection diagnostics use values the pillow currently reports. Missing firmware fields are shown honestly.</Text>
+          <View style={styles.healthGrid}>
+            {[
+              ['Signal quality', signalQuality, 'signal'],
+              ['Last synchronization', lastPillowSync ? moment(lastPillowSync).fromNow() : 'No events synced', 'sync'],
+              ['Pump status', connected ? 'Ready · idle' : 'Unavailable offline', 'wind'],
+              ['Battery', 'Not reported by firmware', 'battery-half'],
+              ['Firmware version', 'Not reported by firmware', 'microchip'],
+              ['Diagnostics', connected && signalQuality !== 'Weak' ? 'BLE link looks healthy' : 'Reconnect and move closer', 'stethoscope'],
+            ].map(([label, value, icon]) => (
+              <View key={label} style={styles.healthItem}>
+                <View style={styles.healthIcon}><FontAwesome5 name={icon as any} size={11} color={colors.accentDark} /></View>
+                <View style={styles.healthCopy}>
+                  <Text style={styles.healthLabel}>{label}</Text>
+                  <Text style={styles.healthValue}>{value}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
         </GlassCard>
 
         <View style={styles.sectionHeading}>
@@ -797,7 +892,7 @@ export const SettingsScreen = () => {
       <ConfirmModal
         visible={repairConfirmVisible}
         title="Repair AI model?"
-        message={`This replaces the local model with a fresh ${ON_DEVICE_MODEL_SIZE_MB} MB download. Keep the app open and use Wi-Fi.`}
+        message={`This replaces ${ON_DEVICE_MODEL_SPECS[selectedModelTier].label} with a fresh ${ON_DEVICE_MODEL_SPECS[selectedModelTier].sizeMb} MB download. Keep the app open and use Wi-Fi.`}
         confirmLabel="Repair model"
         artwork="computer"
         onConfirm={() => {
@@ -946,6 +1041,17 @@ const styles = StyleSheet.create({
   },
   modelProgressFill: { height: '100%', borderRadius: 4, backgroundColor: colors.accent },
   modelProgressText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  memoryRecommendation: { flexDirection: 'row', alignItems: 'flex-start', padding: 11, borderRadius: 12, backgroundColor: colors.accentSoft, marginBottom: 10 },
+  memoryRecommendationCopy: { flex: 1, marginLeft: 9 },
+  memoryRecommendationTitle: { color: colors.text, fontSize: 11, fontWeight: '800' },
+  memoryRecommendationText: { color: colors.textMuted, fontSize: 9, lineHeight: 14, marginTop: 3 },
+  modelOptions: { marginBottom: 12 },
+  modelOption: { padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.backgroundSoft, marginBottom: 8 },
+  modelOptionActive: { borderColor: colors.accent, backgroundColor: colors.accentSoft },
+  modelOptionTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  modelOptionTitle: { color: colors.text, fontSize: 12, fontWeight: '800' },
+  modelActiveBadge: { color: colors.accentDark, fontSize: 8, fontWeight: '900' },
+  modelOptionMeta: { color: colors.textMuted, fontSize: 9, lineHeight: 14, marginTop: 4 },
   modelRepairSuccess: { color: '#047857', fontSize: 12, lineHeight: 18, marginBottom: 12 },
   modelRepairError: { color: '#b91c1c', fontSize: 12, lineHeight: 18, marginBottom: 12 },
   card: { padding: 16, marginBottom: 22, borderRadius: 16 },
@@ -978,6 +1084,13 @@ const styles = StyleSheet.create({
   },
   infoLabel: { color: colors.textMuted, fontSize: 13 },
   infoValue: { color: colors.textSecondary, fontSize: 13, fontWeight: '600', maxWidth: '62%', textAlign: 'right' },
+  healthHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  healthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  healthItem: { width: '48%', minHeight: 74, flexDirection: 'row', alignItems: 'flex-start', padding: 10, borderRadius: 12, backgroundColor: colors.backgroundSoft, borderWidth: 1, borderColor: colors.border },
+  healthIcon: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft, marginRight: 8 },
+  healthCopy: { flex: 1 },
+  healthLabel: { color: colors.textMuted, fontSize: 8, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
+  healthValue: { color: colors.textSecondary, fontSize: 10, lineHeight: 14, fontWeight: '700', marginTop: 3 },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
   actionButton: {
     flex: 1,

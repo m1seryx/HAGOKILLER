@@ -223,10 +223,15 @@ export const LogsScreen = () => {
         contentContainerStyle={[styles.listContent, compact && styles.listContentCompact]}
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
-            <View style={styles.emptyIcon}>
-              <FontAwesome5 name="moon" size={18} color="#0284c7" />
-            </View>
-            <Text style={styles.emptyText}>No events for this filter.</Text>
+            <Image
+              source={require('../../assets/hagosaur-empty-logs.png')}
+              style={styles.emptyArtwork}
+              resizeMode="contain"
+              accessible
+              accessibilityLabel="Hagosaur checking an empty sleep log"
+            />
+            <Text style={styles.emptyTitle}>Quiet night here</Text>
+            <Text style={styles.emptyText}>No events match this filter yet.</Text>
           </View>
         }
         ListFooterComponent={
@@ -368,17 +373,16 @@ const styles = StyleSheet.create({
   },
   severityText: { fontSize: 11, fontWeight: '800' },
   durationText: { color: colors.accentDark, fontSize: 12, fontWeight: '800' },
-  emptyWrap: { alignItems: 'center', marginTop: 48 },
-  emptyIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: 'rgba(14,165,233,0.16)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
+  emptyWrap: { alignItems: 'center', marginTop: 28, paddingHorizontal: 28 },
+  emptyArtwork: { width: 178, height: 190, marginBottom: 2 },
+  emptyTitle: {
+    color: colors.text,
+    textAlign: 'center',
+    fontSize: 17,
+    fontWeight: '800',
+    marginBottom: 5,
   },
-  emptyText: { color: colors.textMuted, textAlign: 'center', fontSize: 14, fontWeight: '600' },
+  emptyText: { color: colors.textMuted, textAlign: 'center', fontSize: 13, fontWeight: '600' },
   paginationRow: {
     flexDirection: 'row',
     alignItems: 'center',

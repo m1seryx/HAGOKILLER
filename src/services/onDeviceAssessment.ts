@@ -1,24 +1,54 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
+import * as Device from 'expo-device';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { LlamaContext } from 'llama.rn';
 import {
+  ActionFeedbackRecord,
   DailyActivityCheckIn,
   DailyStats,
   MonthlyStats,
+  OnDeviceModelTier,
   RecommendationData,
 } from '../types';
+import { parseLlmAdvice } from '../utils/llmAdviceParser';
+import {
+  buildFeedbackMemory,
+  explainWellnessAction,
+  qualityCheckActions,
+  selectVerifiedActions,
+} from '../utils/wellnessKnowledge';
 
-export const ON_DEVICE_MODEL_NAME = 'Qwen3-1.7B-Q4_K_M.gguf';
-export const ON_DEVICE_MODEL_SIZE_MB = 1110;
+export const ON_DEVICE_MODEL_SPECS = {
+  compact: {
+    name: 'qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    label: 'Compact 0.5B',
+    sizeMb: 491,
+    minimumBytes: 450_000_000,
+    url: 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf?download=true',
+    contextSize: 1536,
+    threads: 4,
+  },
+  enhanced: {
+    name: 'qwen2.5-1.5b-instruct-q4_k_m.gguf',
+    label: 'Enhanced 1.5B',
+    sizeMb: 1070,
+    minimumBytes: 1_000_000_000,
+    url: 'https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf?download=true',
+    contextSize: 2048,
+    threads: 6,
+  },
+} as const;
 
-const MODEL_URL =
-  'https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/resolve/7fb011e9aee6e4dc7adf8430df9ea8de6a466aa3/Qwen3-1.7B-Q4_K_M.gguf?download=true';
-const MIN_VALID_MODEL_BYTES = 1_000_000_000;
+export const ON_DEVICE_MODEL_NAME = ON_DEVICE_MODEL_SPECS.compact.name;
+export const ON_DEVICE_MODEL_SIZE_MB = ON_DEVICE_MODEL_SPECS.compact.sizeMb;
+const MODEL_PREFERENCE_KEY = '@hagokiller_ai_model_tier';
 const MODEL_DIRECTORY = `${FileSystem.documentDirectory ?? ''}models/`;
-const MODEL_PATH = `${MODEL_DIRECTORY}${ON_DEVICE_MODEL_NAME}`;
-const TEMP_MODEL_PATH = `${MODEL_PATH}.download`;
-const LEGACY_MODEL_PATH = `${MODEL_DIRECTORY}Qwen3.5-0.8B-Q4_0.gguf`;
+const LEGACY_MODEL_PATHS = [
+  `${MODEL_DIRECTORY}Qwen3-1.7B-Q4_K_M.gguf`,
+  `${MODEL_DIRECTORY}Qwen3.5-0.8B-Q4_0.gguf`,
+];
 
 const ADVICE_SCHEMA = {
   type: 'object',
@@ -27,8 +57,8 @@ const ADVICE_SCHEMA = {
     progressMessage: { type: 'string' },
     actionItems: {
       type: 'array',
-      minItems: 4,
-      maxItems: 6,
+      minItems: 2,
+      maxItems: 3,
       items: { type: 'string' },
     },
   },
@@ -42,11 +72,11 @@ const SAFETY_PROMPT = [
   'Do not diagnose, prescribe, change medication, or promise outcomes.',
   'Generate new guidance yourself; do not imitate a stock checklist or repeat the same generic advice each day.',
   'Write with a confident, supportive, and practical tone, while clearly using words such as may or can instead of guaranteeing results.',
-  'The recommendation must interpret the most relevant recorded measurement, check-in detail, and trend in 2 to 4 useful sentences.',
-  'Return 4 to 6 prioritized, distinct actions that the person can perform tonight or tomorrow.',
+  'The recommendation must interpret the most relevant recorded measurement, check-in detail, and trend in 1 or 2 useful sentences.',
+  'Return 2 or 3 prioritized, distinct actions that the person can perform tonight or tomorrow.',
   'The first action must directly address the daily note when present; otherwise address the first selected activity; otherwise address the strongest measured concern.',
   'Put all activity-specific guidance in actionItems, not in a separate paragraph and not repeated in recommendation.',
-  'Write each action as 1 or 2 complete sentences containing: the exact step, when or how long to do it, and a brief explanation tied to the supplied data.',
+  'Write each action as one concise sentence containing the exact step and when or how long to do it.',
   'Prioritize the most relevant intervention first and make every action specific enough that the person can follow it without guessing.',
   'Avoid vague wording such as review this activity, improve sleep hygiene, be healthier, or adjust your habits.',
   'Do not repeat the same intervention using different words.',
@@ -57,10 +87,13 @@ const SAFETY_PROMPT = [
   'Base each suggestion on the supplied measurements or selected activities.',
   'If the measured trend is improving, write a short encouraging progressMessage that says to keep up the helpful habits.',
   'If the trend is stable or worsening, return an empty progressMessage and never claim that snoring decreased.',
-  'Return only the requested JSON.',
+  'Use the supplied safeActionCandidates as guardrails: select, combine, or make them more specific for this person instead of inventing risky remedies.',
+  'Return exactly one JSON object shaped like {"recommendation":"...","progressMessage":"...","actionItems":["...","..."]}.',
+  'Do not add markdown, headings, analysis, or text outside the JSON object.',
 ].join(' ');
 
 let context: LlamaContext | null = null;
+let contextTier: OnDeviceModelTier | null = null;
 let initialization: Promise<LlamaContext> | null = null;
 let inferenceQueue: Promise<void> = Promise.resolve();
 
@@ -73,22 +106,61 @@ const requireDeviceStorage = () => {
 export const isOnDeviceAiSupported = (): boolean =>
   Platform.OS !== 'web' && Constants.executionEnvironment !== ExecutionEnvironment.StoreClient;
 
-export const isOnDeviceModelDownloaded = async (): Promise<boolean> => {
+const modelPath = (tier: OnDeviceModelTier): string => `${MODEL_DIRECTORY}${ON_DEVICE_MODEL_SPECS[tier].name}`;
+
+export const getOnDeviceModelPreference = async (): Promise<OnDeviceModelTier> => {
+  const saved = await AsyncStorage.getItem(MODEL_PREFERENCE_KEY);
+  return saved === 'enhanced' ? 'enhanced' : 'compact';
+};
+
+export const setOnDeviceModelPreference = async (tier: OnDeviceModelTier): Promise<void> => {
+  await AsyncStorage.setItem(MODEL_PREFERENCE_KEY, tier);
+  if (context && contextTier !== tier) {
+    await context.release().catch(() => undefined);
+    context = null;
+    contextTier = null;
+    initialization = null;
+  }
+};
+
+export const getDeviceModelRecommendation = () => {
+  const totalMemoryBytes = Device.totalMemory;
+  const totalMemoryGb = totalMemoryBytes ? Math.round((totalMemoryBytes / 1024 ** 3) * 10) / 10 : null;
+  const recommendedTier: OnDeviceModelTier = totalMemoryGb !== null && totalMemoryGb >= 8 ? 'enhanced' : 'compact';
+  return {
+    totalMemoryGb,
+    recommendedTier,
+    reason: totalMemoryGb === null
+      ? 'Memory could not be detected, so Compact is the safer choice.'
+      : recommendedTier === 'enhanced'
+        ? `${totalMemoryGb} GB RAM detected. Enhanced should fit on this device.`
+        : `${totalMemoryGb} GB RAM detected. Compact is recommended for reliable inference.`,
+  };
+};
+
+export const isOnDeviceModelDownloaded = async (requestedTier?: OnDeviceModelTier): Promise<boolean> => {
   if (!FileSystem.documentDirectory || !isOnDeviceAiSupported()) return false;
-  const info = await FileSystem.getInfoAsync(MODEL_PATH, { size: true });
-  return info.exists && typeof info.size === 'number' && info.size >= MIN_VALID_MODEL_BYTES;
+  const tier = requestedTier ?? await getOnDeviceModelPreference();
+  const spec = ON_DEVICE_MODEL_SPECS[tier];
+  const info = await FileSystem.getInfoAsync(modelPath(tier), { size: true });
+  return info.exists && typeof info.size === 'number' && info.size >= spec.minimumBytes;
 };
 
 export const downloadOnDeviceModel = async (
   onProgress: (progress: number) => void,
+  requestedTier?: OnDeviceModelTier,
 ): Promise<void> => {
   requireDeviceStorage();
+  const tier = requestedTier ?? await getOnDeviceModelPreference();
+  const spec = ON_DEVICE_MODEL_SPECS[tier];
+  const destinationPath = modelPath(tier);
+  const temporaryPath = `${destinationPath}.download`;
   await FileSystem.makeDirectoryAsync(MODEL_DIRECTORY, { intermediates: true });
-  await FileSystem.deleteAsync(TEMP_MODEL_PATH, { idempotent: true });
+  await FileSystem.deleteAsync(temporaryPath, { idempotent: true });
 
   const download = FileSystem.createDownloadResumable(
-    MODEL_URL,
-    TEMP_MODEL_PATH,
+    spec.url,
+    temporaryPath,
     {},
     ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
       if (totalBytesExpectedToWrite > 0) {
@@ -101,16 +173,19 @@ export const downloadOnDeviceModel = async (
     const result = await download.downloadAsync();
     if (!result) throw new Error('The model download was cancelled.');
     const info = await FileSystem.getInfoAsync(result.uri, { size: true });
-    if (!info.exists || typeof info.size !== 'number' || info.size < MIN_VALID_MODEL_BYTES) {
+    if (!info.exists || typeof info.size !== 'number' || info.size < spec.minimumBytes) {
       throw new Error('The downloaded model is incomplete.');
     }
-    await FileSystem.deleteAsync(MODEL_PATH, { idempotent: true });
-    await FileSystem.moveAsync({ from: result.uri, to: MODEL_PATH });
+    await FileSystem.deleteAsync(destinationPath, { idempotent: true });
+    await FileSystem.moveAsync({ from: result.uri, to: destinationPath });
     // Reclaim the previous model only after its replacement is safely installed.
-    await FileSystem.deleteAsync(LEGACY_MODEL_PATH, { idempotent: true }).catch(() => undefined);
+    await Promise.all(LEGACY_MODEL_PATHS.map((path) => (
+      FileSystem.deleteAsync(path, { idempotent: true }).catch(() => undefined)
+    )));
     onProgress(1);
+    await setOnDeviceModelPreference(tier);
   } catch (error) {
-    await FileSystem.deleteAsync(TEMP_MODEL_PATH, { idempotent: true });
+    await FileSystem.deleteAsync(temporaryPath, { idempotent: true });
     throw error;
   }
 };
@@ -118,27 +193,31 @@ export const downloadOnDeviceModel = async (
 /** Replaces the installed model and releases any mapped llama context first. */
 export const repairOnDeviceModel = async (
   onProgress: (progress: number) => void,
+  requestedTier?: OnDeviceModelTier,
 ): Promise<void> => {
   await inferenceQueue;
   if (context) {
     await context.release().catch(() => undefined);
     context = null;
+    contextTier = null;
   }
   initialization = null;
-  await downloadOnDeviceModel(onProgress);
+  await downloadOnDeviceModel(onProgress, requestedTier);
 };
 
 const getContext = async (): Promise<LlamaContext> => {
   if (context) return context;
   if (initialization) return initialization;
-  if (!(await isOnDeviceModelDownloaded())) throw new Error('AI model is not downloaded.');
+  const tier = await getOnDeviceModelPreference();
+  const spec = ON_DEVICE_MODEL_SPECS[tier];
+  if (!(await isOnDeviceModelDownloaded(tier))) throw new Error('AI model is not downloaded.');
 
   initialization = import('llama.rn')
     .then(({ initLlama }) => initLlama({
-      model: MODEL_PATH,
-      n_ctx: 2048,
+      model: modelPath(tier),
+      n_ctx: spec.contextSize,
       n_batch: 64,
-      n_threads: 4,
+      n_threads: spec.threads,
       n_gpu_layers: 0,
       use_mlock: false,
       use_mmap: true,
@@ -147,6 +226,7 @@ const getContext = async (): Promise<LlamaContext> => {
     }))
     .then((nextContext) => {
       context = nextContext;
+      contextTier = tier;
       return nextContext;
     })
     .finally(() => {
@@ -155,39 +235,16 @@ const getContext = async (): Promise<LlamaContext> => {
   return initialization;
 };
 
-const parseGeneratedAdvice = (raw: string, isImproving: boolean) => {
-  const start = raw.indexOf('{');
-  const end = raw.lastIndexOf('}');
-  if (start < 0 || end <= start) throw new Error('The on-device model returned invalid JSON.');
-  const value = JSON.parse(raw.slice(start, end + 1)) as Record<string, unknown>;
-  const recommendation = typeof value.recommendation === 'string'
-    ? value.recommendation.trim().slice(0, 800)
-    : '';
-  const generatedProgressMessage = typeof value.progressMessage === 'string'
-    ? value.progressMessage.trim().slice(0, 300)
-    : '';
-  // The model may phrase the encouragement, but recorded data controls whether it is shown.
-  const progressMessage = isImproving ? generatedProgressMessage : '';
-  const actionItems = Array.isArray(value.actionItems)
-    ? [...new Set(value.actionItems
-      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
-      .map((item) => item.trim().slice(0, 420)))]
-      .slice(0, 6)
-    : [];
-  if (!recommendation || actionItems.length < 4 || (isImproving && !progressMessage)) {
-    throw new Error('The on-device model returned incomplete guidance.');
-  }
-  return { recommendation, progressMessage, actionItems };
-};
-
 const generateAdvice = async (
   dailyStats: DailyStats,
   monthlyStats: MonthlyStats,
   checkIn: DailyActivityCheckIn | null,
   fallback: RecommendationData,
+  feedback: ActionFeedbackRecord[] = [],
 ): Promise<RecommendationData> => {
   if (dailyStats.severity === 'danger') return fallback;
   const llama = await getContext();
+  const verifiedActions = selectVerifiedActions(checkIn, feedback);
   const promptData = {
     dailyStats,
     monthlyStats,
@@ -196,15 +253,33 @@ const generateAdvice = async (
     sleepFeeling: checkIn?.sleepFeeling ?? null,
     sleepHours: checkIn?.sleepHours ?? null,
     mouthBreathing: checkIn?.mouthBreathing ?? null,
+    evidence: fallback.recommendationReasons ?? [],
+    verifiedActionCandidates: verifiedActions.map(({ id, action, rationale }) => ({ id, action, rationale })),
+    personalizationMemory: buildFeedbackMemory(feedback),
   };
-  const complete = (retry: boolean) => llama.completion({
+  class InferenceTimeoutError extends Error {}
+  const completeWithinLimit = async (
+    start: () => ReturnType<LlamaContext['completion']>,
+  ) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timeout = setTimeout(() => {
+        void llama.stopCompletion().catch(() => undefined);
+        reject(new InferenceTimeoutError('Personalization took too long. Safe offline actions are shown instead.'));
+      }, 75_000);
+    });
+    try {
+      return await Promise.race([start(), deadline]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+  };
+  const completeStructured = () => completeWithinLimit(() => llama.completion({
       messages: [
         { role: 'system', content: SAFETY_PROMPT },
         {
           role: 'user',
-          content: retry
-            ? `Return a complete valid JSON assessment now. Include 4 to 6 concrete actionItems and follow the schema exactly. Data: ${JSON.stringify(promptData)}`
-            : `Create genuinely personalized guidance from this assessment data. Do not produce a generic sleep-hygiene checklist: ${JSON.stringify(promptData)}`,
+          content: `Use the evidence and check-in to choose the most relevant concern, then select and personalize the verifiedActionCandidates into 2 or 3 prioritized actions with an exact time, duration, or setup step. Repeat helpfulActions only when still relevant. Do not repeat avoidActions; simplify difficultActions. Do not invent remedies outside the verified candidates. Data: ${JSON.stringify(promptData)}`,
         },
       ],
       response_format: {
@@ -214,30 +289,83 @@ const generateAdvice = async (
       enable_thinking: false,
       chat_template_kwargs: { enable_thinking: false },
       reasoning_format: 'none',
-      n_predict: 700,
-      temperature: retry ? 0.1 : 0.3,
-      top_k: retry ? 10 : 30,
-      top_p: 0.9,
+      n_predict: 300,
+      temperature: 0.15,
+      top_k: 20,
+      top_p: 0.85,
       stop: ['<|im_end|>', '<|endoftext|>', '</s>'],
-    });
+    }));
 
-  let generated: ReturnType<typeof parseGeneratedAdvice>;
-  const firstResult = await complete(false);
+  // Some Android devices reject grammar-backed structured output in the native
+  // layer with only "Unknown error". Keep a plain completion path so those
+  // devices can still generate valid JSON instead of failing before parsing.
+  const completeCompatible = () => completeWithinLimit(() => llama.completion({
+    messages: [
+      { role: 'system', content: SAFETY_PROMPT },
+      {
+        role: 'user',
+        content: `Create a practical plan by selecting and personalizing only the verifiedActionCandidates in this data. Respect helpfulActions, avoidActions, and difficultActions. Return only {"recommendation":"one or two evidence-based sentences","progressMessage":"","actionItems":["specific action with timing","different specific action with timing"]}. Data: ${JSON.stringify(promptData)}`,
+      },
+    ],
+    enable_thinking: false,
+    add_generation_prompt: true,
+    n_predict: 300,
+    temperature: 0.05,
+    top_k: 10,
+    top_p: 0.9,
+    stop: ['<|im_end|>', '<|endoftext|>', '</s>'],
+  }));
+
+  let generated: ReturnType<typeof parseLlmAdvice>;
   try {
-    generated = parseGeneratedAdvice(
+    const firstResult = await completeStructured();
+    generated = parseLlmAdvice(
       firstResult.content || firstResult.text,
       monthlyStats.trend === 'improving',
+      fallback.recommendation,
     );
-  } catch {
-    const retryResult = await complete(true);
-    generated = parseGeneratedAdvice(
-      retryResult.content || retryResult.text,
-      monthlyStats.trend === 'improving',
-    );
+  } catch (firstError) {
+    if (firstError instanceof InferenceTimeoutError) throw firstError;
+    try {
+      const retryResult = await completeCompatible();
+      generated = parseLlmAdvice(
+        retryResult.content || retryResult.text,
+        monthlyStats.trend === 'improving',
+        fallback.recommendation,
+      );
+    } catch (error) {
+      // Force a clean native context on the next user-initiated retry. A failed
+      // HostFunction completion can leave the current context unusable.
+      await llama.release().catch(() => undefined);
+      context = null;
+      contextTier = null;
+      initialization = null;
+      return {
+        ...fallback,
+        source: 'rules',
+      };
+    }
   }
+  const actionItems = qualityCheckActions([
+    generated.actionItems[0],
+    fallback.actionItems[0],
+    ...generated.actionItems.slice(1),
+    ...verifiedActions.map((entry) => entry.action),
+    ...fallback.actionItems.slice(1),
+  ].filter((item): item is string => !!item), verifiedActions.map((entry) => entry.action));
   return {
     ...fallback,
     ...generated,
+    // Interleave generated and deterministic actions so the local model adds
+    // personalization while the safety rules keep every plan practical.
+    actionItems,
+    actionExplanations: actionItems.map((action) => explainWellnessAction(
+      action,
+      dailyStats,
+      monthlyStats,
+      checkIn,
+      verifiedActions,
+    )),
     activityContext: undefined,
     dailyTip: undefined,
     source: 'on_device',
@@ -249,12 +377,14 @@ export const requestOnDeviceAssessmentAdvice = (
   monthlyStats: MonthlyStats,
   checkIn: DailyActivityCheckIn | null,
   fallback: RecommendationData,
+  feedback: ActionFeedbackRecord[] = [],
 ): Promise<RecommendationData> => {
   const request = inferenceQueue.then(() => generateAdvice(
     dailyStats,
     monthlyStats,
     checkIn,
     fallback,
+    feedback,
   ));
   inferenceQueue = request.then(() => undefined, () => undefined);
   return request;

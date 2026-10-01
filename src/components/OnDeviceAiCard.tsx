@@ -17,6 +17,7 @@ interface OnDeviceAiCardProps {
   progress: number;
   error?: string;
   onDownload: () => void;
+  modelSizeMb?: number;
 }
 
 export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
@@ -24,6 +25,7 @@ export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
   progress,
   error,
   onDownload,
+  modelSizeMb = ON_DEVICE_MODEL_SIZE_MB,
 }) => (
   <View style={styles.container}>
     <View style={styles.headingRow}>
@@ -68,7 +70,7 @@ export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
     {status === 'missing' || status === 'error' ? (
       <>
         <Text style={styles.notice}>
-          Download approximately {ON_DEVICE_MODEL_SIZE_MB} MB over Wi-Fi. The model stays in this app's private storage.
+          Download approximately {modelSizeMb} MB over Wi-Fi. The model stays in this app's private storage.
         </Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <TouchableOpacity

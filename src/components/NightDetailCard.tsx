@@ -10,15 +10,17 @@ import {
 import { FontAwesome5 } from '@expo/vector-icons';
 import { BarChart } from 'react-native-chart-kit';
 import moment from 'moment';
-import { NightDetail } from '../types';
+import { NightDetail, SleepEvent } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
 import { formatPeakWindow, getNightLabel } from '../utils/statsCalculator';
+import { analyzeInterventionOutcomes } from '../utils/wellnessAnalytics';
 
 interface NightDetailCardProps {
   night: NightDetail;
   nightKeys: string[];
   selectedKey: string;
   onSelectNight: (nightKey: string) => void;
+  events: SleepEvent[];
 }
 
 export const NightDetailCard: React.FC<NightDetailCardProps> = ({
@@ -26,6 +28,7 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
   nightKeys,
   selectedKey,
   onSelectNight,
+  events,
 }) => {
   const { width } = useWindowDimensions();
   const severityColor = getSeverityColor(night.severity);
@@ -36,6 +39,30 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
   );
 
   const chartWidth = Math.min(width - 28, 560);
+  const eventTimeline = useMemo(
+    () => [...events].sort((a, b) => a.timestamp - b.timestamp),
+    [events],
+  );
+  const interventionOutcomes = useMemo(
+    () => analyzeInterventionOutcomes(eventTimeline),
+    [eventTimeline],
+  );
+  const outcomesByEvent = useMemo(
+    () => new Map(interventionOutcomes.map((outcome) => [outcome.event.id, outcome])),
+    [interventionOutcomes],
+  );
+  const successfulInterventions = interventionOutcomes.filter((outcome) => outcome.appearedEffective).length;
+  const observedOutcomes = interventionOutcomes.filter((outcome) => outcome.minutesToNext !== null);
+  const averageResponseMinutes = observedOutcomes.length > 0
+    ? Math.round((observedOutcomes.reduce((sum, outcome) => sum + (outcome.minutesToNext ?? 0), 0) / observedOutcomes.length) * 10) / 10
+    : null;
+  const comparableOutcomes = interventionOutcomes.filter((outcome) => outcome.nextEvent);
+  const averageBefore = comparableOutcomes.length > 0
+    ? Math.round(comparableOutcomes.reduce((sum, outcome) => sum + outcome.event.duration, 0) / comparableOutcomes.length)
+    : null;
+  const averageAfter = comparableOutcomes.length > 0
+    ? Math.round(comparableOutcomes.reduce((sum, outcome) => sum + (outcome.nextEvent?.duration ?? 0), 0) / comparableOutcomes.length)
+    : null;
 
   const chartData = useMemo(() => {
     const labels = visibleHours.map((h) => moment().hour(h.hour).minute(0).format('ha'));
@@ -201,6 +228,74 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
             </View>
           </View>
 
+          <View style={styles.effectivenessCard}>
+            <View style={styles.effectivenessHeader}>
+              <View style={styles.effectivenessIcon}>
+                <FontAwesome5 name="wind" size={13} color="#34d399" />
+              </View>
+              <View style={styles.effectivenessCopy}>
+                <Text style={styles.effectivenessEyebrow}>PILLOW RESPONSE</Text>
+                <Text style={styles.effectivenessTitle}>
+                  {interventionOutcomes.length > 0
+                    ? `${interventionOutcomes.length} interventions, ${successfulInterventions} appeared effective`
+                    : 'No pillow interventions this night'}
+                </Text>
+              </View>
+            </View>
+            {interventionOutcomes.length > 0 ? (
+              <View style={styles.effectivenessMetrics}>
+                <View style={styles.effectivenessMetric}>
+                  <Text style={styles.effectivenessValue}>
+                    {Math.round((successfulInterventions / interventionOutcomes.length) * 100)}%
+                  </Text>
+                  <Text style={styles.effectivenessLabel}>Success</Text>
+                </View>
+                <View style={styles.effectivenessMetric}>
+                  <Text style={styles.effectivenessValue}>{averageResponseMinutes ?? '—'}{averageResponseMinutes !== null ? 'm' : ''}</Text>
+                  <Text style={styles.effectivenessLabel}>Next event</Text>
+                </View>
+                <View style={styles.effectivenessMetric}>
+                  <Text style={styles.effectivenessValue}>
+                    {averageBefore !== null && averageAfter !== null ? `${averageBefore}s → ${averageAfter}s` : '—'}
+                  </Text>
+                  <Text style={styles.effectivenessLabel}>Before / after</Text>
+                </View>
+              </View>
+            ) : null}
+            <Text style={styles.effectivenessNote}>
+              “Appeared effective” means the next event was quieter, shorter, at least 30 minutes later, or no later event was recorded.
+            </Text>
+          </View>
+
+          <Text style={styles.eventTimelineTitle}>Event and intervention timeline</Text>
+          <View style={styles.eventTimeline}>
+            {eventTimeline.slice(0, 16).map((event, index) => {
+              const outcome = outcomesByEvent.get(event.id);
+              return (
+                <View key={event.id} style={styles.eventRow}>
+                  <View style={styles.eventRail}>
+                    <View style={[styles.eventDot, event.interventionTriggered && styles.eventDotIntervention]} />
+                    {index < Math.min(eventTimeline.length, 16) - 1 ? <View style={styles.eventLine} /> : null}
+                  </View>
+                  <View style={styles.eventContent}>
+                    <View style={styles.eventHeadingRow}>
+                      <Text style={styles.eventTime}>{moment(event.timestamp).format('h:mm A')}</Text>
+                      <Text style={styles.eventMeta}>{event.duration}s · {event.severity}</Text>
+                    </View>
+                    <Text style={styles.eventName}>
+                      {event.interventionTriggered ? `Snore detected · pillow inflated ${event.interventionDuration}s` : 'Snore detected'}
+                    </Text>
+                    {outcome ? (
+                      <Text style={[styles.eventOutcome, outcome.appearedEffective ? styles.eventOutcomeGood : styles.eventOutcomeWatch]}>
+                        {outcome.appearedEffective ? 'Appeared effective · ' : 'Keep monitoring · '}{outcome.explanation}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
           {night.firstSnoreAt && night.lastSnoreAt ? (
             <Text style={styles.spanText}>
               First {moment(night.firstSnoreAt).format('h:mm A')} · Last{' '}
@@ -347,4 +442,30 @@ const styles = StyleSheet.create({
     color: '#a9bfdf',
     textAlign: 'center',
   },
+  effectivenessCard: { marginTop: 16, padding: 14, borderRadius: 14, backgroundColor: '#102342', borderWidth: 1, borderColor: '#235177' },
+  effectivenessHeader: { flexDirection: 'row', alignItems: 'center' },
+  effectivenessIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(52, 211, 153, 0.12)', marginRight: 10 },
+  effectivenessCopy: { flex: 1 },
+  effectivenessEyebrow: { color: '#6ee7b7', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
+  effectivenessTitle: { color: '#eef7ff', fontSize: 13, lineHeight: 18, fontWeight: '800', marginTop: 2 },
+  effectivenessMetrics: { flexDirection: 'row', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#294a78' },
+  effectivenessMetric: { flex: 1, alignItems: 'center', paddingHorizontal: 3 },
+  effectivenessValue: { color: '#eef7ff', fontSize: 14, fontWeight: '900' },
+  effectivenessLabel: { color: '#8fa8c7', fontSize: 8, marginTop: 3, textAlign: 'center' },
+  effectivenessNote: { color: '#7890aa', fontSize: 9, lineHeight: 14, marginTop: 12 },
+  eventTimelineTitle: { color: '#a9bfdf', fontSize: 11, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: 20, marginBottom: 12 },
+  eventTimeline: { paddingHorizontal: 2 },
+  eventRow: { flexDirection: 'row', minHeight: 74 },
+  eventRail: { width: 22, alignItems: 'center' },
+  eventDot: { width: 9, height: 9, borderRadius: 5, marginTop: 5, backgroundColor: '#38bdf8', borderWidth: 2, borderColor: '#0b1834' },
+  eventDotIntervention: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#34d399' },
+  eventLine: { flex: 1, width: 1, backgroundColor: '#294a78', marginVertical: 3 },
+  eventContent: { flex: 1, paddingBottom: 14, paddingLeft: 8 },
+  eventHeadingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  eventTime: { color: '#eef7ff', fontSize: 12, fontWeight: '800' },
+  eventMeta: { color: '#7890aa', fontSize: 9, textTransform: 'capitalize' },
+  eventName: { color: '#a9bfdf', fontSize: 10, marginTop: 3 },
+  eventOutcome: { fontSize: 9, lineHeight: 13, marginTop: 4, fontWeight: '600' },
+  eventOutcomeGood: { color: '#6ee7b7' },
+  eventOutcomeWatch: { color: '#fbbf24' },
 });

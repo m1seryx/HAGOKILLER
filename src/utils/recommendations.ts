@@ -5,9 +5,33 @@ import {
   MonthlyStats,
   RecommendationData,
 } from '../types';
+import { explainWellnessAction, selectVerifiedActions } from './wellnessKnowledge';
 
 type Trend = 'improving' | 'stable' | 'worsening';
 type Severity = 'normal' | 'bad' | 'danger';
+
+const ACTIVITY_REASON_LABELS: Partial<Record<ActivityId, string>> = {
+  alcohol: 'alcohol',
+  late_meal: 'a late meal',
+  exercise: 'exercise',
+  stress: 'stress',
+  caffeine: 'late caffeine',
+  screen_time: 'late screen use',
+  congested: 'congestion',
+  back_sleeper: 'back sleeping',
+  irregular_schedule: 'an irregular schedule',
+  smoking: 'smoking',
+  dry_air: 'dry air',
+  mouth_breathing: 'mouth breathing',
+  medications: 'medication use',
+  dehydrated: 'dehydration',
+};
+
+const formatHour = (hour: number): string => {
+  const normalized = ((hour % 24) + 24) % 24;
+  const display = normalized % 12 || 12;
+  return `${display}:00 ${normalized < 12 ? 'AM' : 'PM'}`;
+};
 
 /** Rule-based daily advice from snoring severity + trend + check-in + date rotation. */
 
@@ -96,9 +120,9 @@ const ACTIVITY_ADVICE: Record<ActivityId, { context: string; tips: string[] }> =
   stress: {
     context: 'Stress and muscle tension can disrupt breathing patterns.',
     tips: [
-      'Try 5 minutes of box breathing before sleep.',
-      'Write down worries on paper to clear your mind.',
-      'Keep a consistent wind-down ritual (dim lights, no news).',
+      'Set a 10-minute shutdown routine 60 minutes before bed: list unfinished tasks and the first step for tomorrow, then put the paperwork out of sight.',
+      'Do 5 minutes of slow breathing before sleep: inhale for 4 seconds and exhale for 6 seconds to reduce physical tension.',
+      'If work must continue tonight, stop at least 30 minutes before bed and use that time for dim lights, stretching, and no work messages.',
     ],
   },
   congested: {
@@ -183,6 +207,19 @@ const ACTIVITY_ADVICE: Record<ActivityId, { context: string; tips: string[] }> =
   },
 };
 
+const NOTE_ACTIVITY_RULES: Array<{ pattern: RegExp; activity: ActivityId }> = [
+  { pattern: /stress|stressed|stressful|anxious|anxiety|worr(?:y|ied)|paperwork|deadline|workload/i, activity: 'stress' },
+  { pattern: /coffee|caffeine|energy drink|milk tea/i, activity: 'caffeine' },
+  { pattern: /phone|screen|scroll|gaming|computer|laptop|social media/i, activity: 'screen_time' },
+  { pattern: /congest|blocked nose|stuffy|runny nose|allerg/i, activity: 'congested' },
+  { pattern: /alcohol|beer|wine|liquor|drink(?:ing)?/i, activity: 'alcohol' },
+  { pattern: /late (?:meal|dinner|snack)|ate late|heavy meal|full stomach/i, activity: 'late_meal' },
+  { pattern: /dry (?:air|room|throat)|aircon|air conditioner/i, activity: 'dry_air' },
+  { pattern: /dehydrat|not enough water|thirst/i, activity: 'dehydrated' },
+  { pattern: /smok|vape|nicotine/i, activity: 'smoking' },
+  { pattern: /mouth breath|dry mouth/i, activity: 'mouth_breathing' },
+];
+
 const DAILY_TIPS = [
   'Side sleeping with knees slightly bent often opens the airway.',
   'A cooler, darker room supports deeper, quieter sleep.',
@@ -237,9 +274,22 @@ export const getRecommendations = (
 
   if (otherNote) {
     contextParts.push(`You noted: ${otherNote}.`);
-    actionItems.unshift(
-      'Review whether this activity could affect sleep — adjust timing or habits if it recurs.',
-    );
+    const inferredActivities = NOTE_ACTIVITY_RULES
+      .filter(({ pattern, activity }) => pattern.test(otherNote) && !activities.includes(activity))
+      .map(({ activity }) => activity);
+    const noteActions = inferredActivities
+      .flatMap((activity) => {
+        contextParts.push(ACTIVITY_ADVICE[activity].context);
+        return ACTIVITY_ADVICE[activity].tips;
+      })
+      .slice(0, 2);
+
+    actionItems = noteActions.length > 0
+      ? [...noteActions, ...actionItems]
+      : [
+        'Choose one part of today that you can control, write one small next step for tomorrow, and stop planning 30 minutes before bed.',
+        ...actionItems,
+      ];
   }
 
   actionItems = [...new Set(actionItems)].slice(0, 5);
@@ -247,6 +297,25 @@ export const getRecommendations = (
   if (activities.length > 0 || otherNote) {
     recommendation = `${recommendation} Based on today's check-in, tips below match what you selected.`;
   }
+
+  const recommendationReasons = [
+    `${dailyStats.totalSnoreEvents} snoring events with a ${dailyStats.averageDuration}s average duration were recorded for this sleep day.`,
+    dailyStats.interventionCount > 0
+      ? `The pillow performed ${dailyStats.interventionCount} intervention${dailyStats.interventionCount === 1 ? '' : 's'}.`
+      : 'No pillow intervention was recorded for this sleep day.',
+    dailyStats.totalSnoreEvents > 0
+      ? `The busiest snoring period was around ${formatHour(dailyStats.peakHour)}.`
+      : 'There was not enough snoring data to identify a peak hour.',
+  ];
+  const reportedLabels = activities
+    .map((activity) => ACTIVITY_REASON_LABELS[activity])
+    .filter((label): label is string => !!label);
+  if (reportedLabels.length > 0) {
+    recommendationReasons.push(`Your check-in reported ${reportedLabels.slice(0, 3).join(', ')}.`);
+  } else if (otherNote) {
+    recommendationReasons.push('Your written daily check-in was used to personalize the actions.');
+  }
+  const verifiedActions = selectVerifiedActions(checkIn ?? null, []);
 
   return {
     severityLevel,
@@ -257,6 +326,14 @@ export const getRecommendations = (
     activityContext: contextParts.length > 0 ? contextParts.join(' ') : undefined,
     checkInComplete: !!checkIn,
     source: 'rules',
+    recommendationReasons,
+    actionExplanations: actionItems.map((action) => explainWellnessAction(
+      action,
+      dailyStats,
+      _monthlyStats,
+      checkIn ?? null,
+      verifiedActions,
+    )),
   };
 };
 

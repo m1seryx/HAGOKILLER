@@ -13,9 +13,11 @@ import { NameInputScreen } from './src/screens/NameInputScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { LogsScreen } from './src/screens/LogsScreen';
 import { AssessmentScreen } from './src/screens/AssessmentScreen';
+import { WellnessPlanHistoryScreen } from './src/screens/WellnessPlanHistoryScreen';
 import { NightDetailScreen } from './src/screens/NightDetailScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
+import { DownloadScreen } from './src/screens/DownloadScreen';
 import { UserContext } from './src/context/UserContext';
 import { DeviceProvider } from './src/context/DeviceContext';
 import { UserProfile } from './src/types';
@@ -327,6 +329,19 @@ export default function App() {
     navigation.replace('Main');
   };
 
+  const isDownloadRoute = Platform.OS === 'web'
+    && typeof window !== 'undefined'
+    && (window.location.pathname.replace(/\/$/, '') === '/download'
+      || new URLSearchParams(window.location.search).has('download'));
+
+  if (isDownloadRoute) {
+    return (
+      <SafeAreaProvider>
+        <DownloadScreen />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <AppErrorBoundary>
     <SafeAreaProvider style={styles.container}>
@@ -358,6 +373,12 @@ export default function App() {
               <Stack.Screen
                 name="Profile"
                 component={ProfileScreen}
+                options={{ animation: 'slide_from_right' }}
+              />
+
+              <Stack.Screen
+                name="WellnessPlanHistory"
+                component={WellnessPlanHistoryScreen}
                 options={{ animation: 'slide_from_right' }}
               />
 
