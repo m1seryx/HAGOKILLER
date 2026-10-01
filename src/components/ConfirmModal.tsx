@@ -15,6 +15,7 @@ interface ConfirmModalProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  eyebrow?: string;
   destructive?: boolean;
   artwork?: 'offer' | 'unplug' | 'computer' | 'ble-disconnect' | 'ble-reconnect';
   onConfirm: () => void;
@@ -27,6 +28,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   message,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
+  eyebrow,
   destructive = false,
   artwork = 'offer',
   onConfirm,
@@ -70,7 +72,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </View>
           <View style={styles.copy}>
             <Text style={[styles.eyebrow, destructive && styles.eyebrowDestructive]}>
-              {artwork === 'unplug'
+              {eyebrow ?? (artwork === 'unplug'
                 ? 'CONNECTION CHECK'
                 : artwork === 'computer'
                   ? 'MODEL REPAIR'
@@ -80,7 +82,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                       ? 'BLE RECONNECT'
                 : destructive
                   ? 'SAFETY CHECK'
-                  : 'HAGOSAUR CHECK-IN'}
+                  : 'HAGOSAUR CHECK-IN')}
             </Text>
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.message}>{message}</Text>

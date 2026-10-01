@@ -9,6 +9,16 @@ describe('verified wellness knowledge', () => {
     expect(selected.some((entry) => entry.id === 'caffeine-cutoff')).toBe(false);
   });
 
+  test('only offers habit actions supported by a paperwork check-in', () => {
+    const selected = selectVerifiedActions(
+      { date: '2026-10-01', activities: [], otherActivityNote: 'I had a lot of paperworks', updatedAt: 1 } as any,
+      [],
+    );
+    expect(selected.some((entry) => entry.id === 'stress-reset')).toBe(true);
+    expect(selected.some((entry) => entry.id === 'alcohol-buffer')).toBe(false);
+    expect(selected.some((entry) => entry.id === 'screen-winddown')).toBe(false);
+  });
+
   test('rejects vague and unsafe generated actions', () => {
     const checked = qualityCheckActions(
       ['Relax more.', 'Try mouth taping tonight.', 'Dim screens for 30 minutes before bedtime tonight.'],

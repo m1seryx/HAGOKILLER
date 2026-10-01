@@ -68,6 +68,11 @@ const KEYWORD_MAP: Array<{ id: ActivityId; keywords: string[] }> = [
       'overwhelmed',
       'tension',
       'tense',
+      'paperwork',
+      'deadline',
+      'workload',
+      'work pressure',
+      'busy at work',
     ],
   },
   {

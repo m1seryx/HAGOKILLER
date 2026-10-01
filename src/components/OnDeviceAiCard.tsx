@@ -18,6 +18,7 @@ interface OnDeviceAiCardProps {
   error?: string;
   onDownload: () => void;
   modelSizeMb?: number;
+  modelLabel?: string;
 }
 
 export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
@@ -26,6 +27,7 @@ export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
   error,
   onDownload,
   modelSizeMb = ON_DEVICE_MODEL_SIZE_MB,
+  modelLabel = 'Selected model',
 }) => (
   <View style={styles.container}>
     <View style={styles.headingRow}>
@@ -34,7 +36,7 @@ export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
       </View>
       <View style={styles.headingText}>
         <Text style={styles.title}>Private on-device AI</Text>
-        <Text style={styles.subtitle}>Runs offline after a one-time model download.</Text>
+        <Text style={styles.subtitle}>{modelLabel} runs offline after a one-time download.</Text>
       </View>
     </View>
 
@@ -48,7 +50,7 @@ export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
     {status === 'ready' ? (
       <View style={styles.statusRow}>
         <FontAwesome5 name="check-circle" size={14} color="#10b981" />
-        <Text style={styles.readyText}>Model ready · no computer or internet required</Text>
+        <Text style={styles.readyText}>{modelLabel} ready · no computer or internet required</Text>
       </View>
     ) : null}
 
@@ -70,7 +72,7 @@ export const OnDeviceAiCard: React.FC<OnDeviceAiCardProps> = ({
     {status === 'missing' || status === 'error' ? (
       <>
         <Text style={styles.notice}>
-          Download approximately {modelSizeMb} MB over Wi-Fi. The model stays in this app's private storage.
+          Download {modelLabel} (approximately {modelSizeMb} MB) over Wi-Fi. The model stays in this app's private storage.
         </Text>
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <TouchableOpacity

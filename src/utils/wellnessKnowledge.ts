@@ -1,4 +1,5 @@
 import { ActionFeedbackRecord, ActivityId, DailyActivityCheckIn, DailyStats, MonthlyStats } from '../types';
+import { parseCheckInText } from './checkInParsing';
 
 export interface VerifiedWellnessAction {
   id: string;
@@ -45,10 +46,15 @@ export const selectVerifiedActions = (
   feedback: ActionFeedbackRecord[],
   limit = 5,
 ): VerifiedWellnessAction[] => {
-  const activities = checkIn?.activities ?? [];
+  const parsedActivities = parseCheckInText(checkIn?.otherActivityNote ?? '').activities;
+  const activities = [...new Set([...(checkIn?.activities ?? []), ...parsedActivities])];
   const negative = feedback.filter((item) => item.feedback !== 'helpful');
   const positive = feedback.filter((item) => item.feedback === 'helpful');
   return VERIFIED_WELLNESS_ACTIONS
+    .filter((entry) => (
+      entry.triggers.length === 0
+      || entry.triggers.some((trigger) => activities.includes(trigger))
+    ))
     .filter((entry) => !negative.some((item) => actionsAreSimilar(entry.action, item.actionText)))
     .sort((a, b) => {
       const score = (entry: VerifiedWellnessAction) => (
@@ -76,7 +82,7 @@ export const qualityCheckActions = (actions: string[], safeFallbacks: string[]):
     if (accepted.length >= 4) break;
     if (!accepted.some((existing) => actionsAreSimilar(existing, fallback))) accepted.push(fallback);
   }
-  return accepted.slice(0, 4);
+  return accepted.slice(0, 3);
 };
 
 export const explainWellnessAction = (

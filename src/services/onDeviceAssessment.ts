@@ -14,6 +14,7 @@ import {
 } from '../types';
 import { parseLlmAdvice } from '../utils/llmAdviceParser';
 import {
+  actionsAreSimilar,
   buildFeedbackMemory,
   explainWellnessAction,
   qualityCheckActions,
@@ -279,7 +280,7 @@ const generateAdvice = async (
         { role: 'system', content: SAFETY_PROMPT },
         {
           role: 'user',
-          content: `Use the evidence and check-in to choose the most relevant concern, then select and personalize the verifiedActionCandidates into 2 or 3 prioritized actions with an exact time, duration, or setup step. Repeat helpfulActions only when still relevant. Do not repeat avoidActions; simplify difficultActions. Do not invent remedies outside the verified candidates. Data: ${JSON.stringify(promptData)}`,
+          content: `Use the evidence and check-in to choose the most relevant concern, then select and lightly personalize the verifiedActionCandidates into 2 or 3 prioritized actions with an exact time, duration, or setup step. An activity absent from selectedActivities and dailyNote was not reported: never mention or imply it. Repeat helpfulActions only when still relevant. Do not repeat avoidActions; simplify difficultActions. Do not invent remedies outside the verified candidates. Data: ${JSON.stringify(promptData)}`,
         },
       ],
       response_format: {
@@ -304,7 +305,7 @@ const generateAdvice = async (
       { role: 'system', content: SAFETY_PROMPT },
       {
         role: 'user',
-        content: `Create a practical plan by selecting and personalizing only the verifiedActionCandidates in this data. Respect helpfulActions, avoidActions, and difficultActions. Return only {"recommendation":"one or two evidence-based sentences","progressMessage":"","actionItems":["specific action with timing","different specific action with timing"]}. Data: ${JSON.stringify(promptData)}`,
+        content: `Create a practical plan by selecting and lightly personalizing only the verifiedActionCandidates in this data. Never mention a habit unless it appears in selectedActivities or dailyNote. Respect helpfulActions, avoidActions, and difficultActions. Return only {"recommendation":"one or two evidence-based sentences","progressMessage":"","actionItems":["specific action with timing","different specific action with timing"]}. Data: ${JSON.stringify(promptData)}`,
       },
     ],
     enable_thinking: false,
@@ -346,13 +347,25 @@ const generateAdvice = async (
       };
     }
   }
-  const actionItems = qualityCheckActions([
-    generated.actionItems[0],
-    fallback.actionItems[0],
-    ...generated.actionItems.slice(1),
-    ...verifiedActions.map((entry) => entry.action),
-    ...fallback.actionItems.slice(1),
-  ].filter((item): item is string => !!item), verifiedActions.map((entry) => entry.action));
+  const hasCheckInContext = !!checkIn?.otherActivityNote?.trim() || (checkIn?.activities.length ?? 0) > 0;
+  const groundedGeneratedActions = hasCheckInContext
+    ? generated.actionItems.filter((action) => (
+        verifiedActions.some((candidate) => actionsAreSimilar(candidate.action, action))
+      ))
+    : generated.actionItems;
+  const actionItems = qualityCheckActions((hasCheckInContext
+    ? [
+        ...groundedGeneratedActions,
+        ...verifiedActions.map((entry) => entry.action),
+      ]
+    : [
+        groundedGeneratedActions[0],
+        fallback.actionItems[0],
+        ...groundedGeneratedActions.slice(1),
+        ...verifiedActions.map((entry) => entry.action),
+        ...fallback.actionItems.slice(1),
+      ]
+  ).filter((item): item is string => !!item), verifiedActions.map((entry) => entry.action));
   return {
     ...fallback,
     ...generated,

@@ -137,6 +137,7 @@ export const SettingsScreen = () => {
   const [testingNotif, setTestingNotif] = useState(false);
   const [modelRepairStatus, setModelRepairStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle');
   const [repairConfirmVisible, setRepairConfirmVisible] = useState(false);
+  const [modelDownloadTier, setModelDownloadTier] = useState<OnDeviceModelTier | null>(null);
   const [modelRepairProgress, setModelRepairProgress] = useState(0);
   const [modelRepairMessage, setModelRepairMessage] = useState('');
   const [selectedModelTier, setSelectedModelTier] = useState<OnDeviceModelTier>('compact');
@@ -362,15 +363,7 @@ export const SettingsScreen = () => {
       Alert.alert('Native build required', 'Local model downloads require an installed development or EAS build.');
       return;
     }
-    const spec = ON_DEVICE_MODEL_SPECS[tier];
-    Alert.alert(
-      `Use ${spec.label}?`,
-      `This downloads approximately ${spec.sizeMb} MB. Keep the app open and use Wi-Fi.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Download', onPress: () => { void runModelRepair(tier); } },
-      ],
-    );
+    setModelDownloadTier(tier);
   };
 
   if (loading) {
@@ -889,6 +882,22 @@ export const SettingsScreen = () => {
         </KeyboardAvoidingView>
       </Modal>
 
+      <ConfirmModal
+        visible={modelDownloadTier !== null}
+        title={modelDownloadTier ? `Download ${ON_DEVICE_MODEL_SPECS[modelDownloadTier].label}?` : 'Download AI model?'}
+        message={modelDownloadTier
+          ? `${ON_DEVICE_MODEL_SPECS[modelDownloadTier].sizeMb} MB · ${modelDownloadTier === 'compact' ? 'Fastest and most compatible' : 'Stronger wording and reasoning'}\n\nKeep Hagokiller open and connected to Wi-Fi while downloading. The model and your sleep data stay private on this phone.`
+          : ''}
+        eyebrow="PRIVATE ON-DEVICE AI"
+        confirmLabel="Download model"
+        artwork="computer"
+        onConfirm={() => {
+          const tier = modelDownloadTier;
+          setModelDownloadTier(null);
+          if (tier) void runModelRepair(tier);
+        }}
+        onCancel={() => setModelDownloadTier(null)}
+      />
       <ConfirmModal
         visible={repairConfirmVisible}
         title="Repair AI model?"

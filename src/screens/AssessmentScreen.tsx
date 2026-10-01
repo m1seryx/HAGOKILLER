@@ -56,7 +56,7 @@ import { actionKey, actionsAreSimilar } from '../utils/wellnessKnowledge';
 import { notifyPersonalizedPlanReady } from '../services/assessmentNotifications';
 
 const assessmentAdviceCache = new Map<string, RecommendationData>();
-const ASSESSMENT_PLAN_VERSION = 2;
+const ASSESSMENT_PLAN_VERSION = 4;
 
 const keepExistingWhenEqual = <T,>(current: T | null, next: T | null): T | null => (
   JSON.stringify(current) === JSON.stringify(next) ? current : next
@@ -66,8 +66,10 @@ const buildAssessmentInputKey = (
   daily: DailyStats,
   monthly: MonthlyStats,
   dailyCheckIn: DailyActivityCheckIn | null,
+  guidanceMode: OnDeviceModelTier | 'offline',
 ): string => JSON.stringify({
   planVersion: ASSESSMENT_PLAN_VERSION,
+  guidanceMode,
   daily,
   monthly,
   checkIn: dailyCheckIn
@@ -107,6 +109,26 @@ export const AssessmentScreen = () => {
   const hasLoadedOnce = useRef(false);
   const todayDate = moment().format('YYYY-MM-DD');
 
+  const checkModelAvailability = useCallback(async (isActive: () => boolean) => {
+    if (!isOnDeviceAiSupported()) {
+      if (isActive()) setModelStatus('unsupported');
+      return;
+    }
+
+    try {
+      const tier = await getOnDeviceModelPreference();
+      const downloaded = await isOnDeviceModelDownloaded(tier);
+      if (!isActive()) return;
+      setModelTier(tier);
+      setModelError('');
+      setModelStatus(downloaded ? 'ready' : 'missing');
+    } catch {
+      if (!isActive()) return;
+      setModelStatus('error');
+      setModelError('Could not check the phone storage. Use an installed development or preview build.');
+    }
+  }, []);
+
   const load = useCallback(async () => {
     const [events, savedCheckIn, savedFeedback] = await Promise.all([
       bleService.fetchSleepEvents(),
@@ -132,6 +154,14 @@ export const AssessmentScreen = () => {
           setLoading(false);
         });
     }, [load]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void checkModelAvailability(() => active);
+      return () => { active = false; };
+    }, [checkModelAvailability]),
   );
 
   const onRefresh = async () => {
@@ -161,9 +191,10 @@ export const AssessmentScreen = () => {
     [today, month, checkIn, todayDate],
   );
 
+  const guidanceMode: OnDeviceModelTier | 'offline' = modelStatus === 'ready' ? modelTier : 'offline';
   const assessmentInputKey = useMemo(
-    () => (today && month ? buildAssessmentInputKey(today, month, checkIn) : ''),
-    [today, month, checkIn],
+    () => (today && month ? buildAssessmentInputKey(today, month, checkIn, guidanceMode) : ''),
+    [today, month, checkIn, guidanceMode],
   );
 
   useEffect(() => {
@@ -186,27 +217,6 @@ export const AssessmentScreen = () => {
       });
     return () => { active = false; };
   }, [assessmentInputKey, todayDate]);
-
-  useEffect(() => {
-    if (!isOnDeviceAiSupported()) {
-      setModelStatus('unsupported');
-      return undefined;
-    }
-    let active = true;
-    getOnDeviceModelPreference()
-      .then(async (tier) => {
-        setModelTier(tier);
-        const downloaded = await isOnDeviceModelDownloaded(tier);
-        if (active) setModelStatus(downloaded ? 'ready' : 'missing');
-      })
-      .catch(() => {
-        if (active) {
-          setModelStatus('error');
-          setModelError('Could not check the phone storage. Use an installed development or preview build.');
-        }
-      });
-    return () => { active = false; };
-  }, []);
 
   const handleDownloadModel = async () => {
     setModelStatus('downloading');
@@ -458,6 +468,7 @@ export const AssessmentScreen = () => {
             error={modelError}
             onDownload={handleDownloadModel}
             modelSizeMb={ON_DEVICE_MODEL_SPECS[modelTier].sizeMb}
+            modelLabel={ON_DEVICE_MODEL_SPECS[modelTier].label}
           />
         ) : null}
 
