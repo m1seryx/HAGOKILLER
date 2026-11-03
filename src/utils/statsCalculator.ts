@@ -205,6 +205,9 @@ export const getNightKey = (timestamp: number): string => {
   return m.format('YYYY-MM-DD');
 };
 
+/** Sleep night that is in progress right now (evening maps to tomorrow's wake date). */
+export const getCurrentNightKey = (): string => getNightKey(Date.now());
+
 export const getNightLabel = (nightKey: string): string => {
   const wake = moment(nightKey, 'YYYY-MM-DD');
   const today = moment().format('YYYY-MM-DD');
@@ -269,14 +272,22 @@ export const listRecentNightKeys = (events: SleepEvent[], limit = 7): string[] =
   const keys = new Set<string>();
   events.forEach((e) => keys.add(getNightKey(e.timestamp)));
 
+  // Anchor on the sleep night currently in progress (not calendar midnight).
+  // After 18:00, tonight's events belong to tomorrow's wake-date key.
+  const currentNight = getCurrentNightKey();
   const result: string[] = [];
   for (let i = 0; i < limit; i++) {
-    const key = moment().subtract(i, 'days').format('YYYY-MM-DD');
-    result.push(key);
+    result.push(moment(currentNight, 'YYYY-MM-DD').subtract(i, 'days').format('YYYY-MM-DD'));
   }
 
-  // Prefer nights that have data, then fill with calendar nights
+  // Keep chronological recency: current night first, then older nights.
+  // Surface nights with data ahead of empty ones within that window.
   const withData = result.filter((k) => keys.has(k));
   const without = result.filter((k) => !keys.has(k));
-  return [...withData, ...without].slice(0, limit);
+  const ordered = [...withData, ...without].slice(0, limit);
+  // Always keep the current night first so live evening snores are visible.
+  if (!ordered.includes(currentNight)) {
+    return [currentNight, ...ordered].slice(0, limit);
+  }
+  return [currentNight, ...ordered.filter((k) => k !== currentNight)].slice(0, limit);
 };

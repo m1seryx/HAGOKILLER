@@ -87,8 +87,9 @@ const REQUIREMENT_GROUPS: Array<{
 
 export const DownloadScreen = () => {
   const { width } = useWindowDimensions();
-  const desktop = width >= 860;
-  const compact = width < 520;
+  const desktop = width >= 1080;
+  const compact = width < 760;
+  const tiny = width < 390;
   const starPulse = React.useRef(new Animated.Value(0.3)).current;
   const cometFlight = React.useRef(new Animated.Value(0)).current;
 
@@ -229,9 +230,9 @@ export const DownloadScreen = () => {
           </Animated.View>
         </View>
 
-        <View style={[styles.nav, compact && styles.navCompact]}>
+        <View style={[styles.nav, desktop && styles.navDesktop, compact && styles.navCompact]}>
           <View style={styles.brand}>
-            <View style={styles.brandMark}>
+            <View style={[styles.brandMark, compact && styles.brandMarkCompact]}>
               <Image
                 source={require('../../assets/app-icon-hagosaur.png')}
                 style={styles.brandArtwork}
@@ -239,18 +240,13 @@ export const DownloadScreen = () => {
                 accessible={false}
               />
             </View>
-            <View>
+            <View style={styles.brandCopy}>
+              {!tiny ? <Text style={styles.brandEyebrow}>YOUR NIGHTLY COMPANION</Text> : null}
               <Text style={styles.brandName}>HAGOKILLER</Text>
-              {!compact ? <Text style={styles.brandSub}>SMART SLEEP COMPANION</Text> : null}
+              {!compact ? <Text style={styles.brandSub}>SLEEP INSIGHTS · SMART PILLOW · PRIVATE AI</Text> : null}
             </View>
           </View>
           <View style={styles.headerActions}>
-            {!compact ? (
-              <View style={styles.previewPill}>
-                <View style={styles.liveDot} />
-                <Text style={styles.previewText}>ANDROID PREVIEW</Text>
-              </View>
-            ) : null}
             <TouchableOpacity
               style={[styles.headerDownload, compact && styles.headerDownloadCompact]}
               onPress={downloadApk}
@@ -258,8 +254,14 @@ export const DownloadScreen = () => {
               accessibilityRole="link"
               accessibilityLabel="Download HAGOKILLER APK"
             >
-              <FontAwesome5 name="download" size={11} color="#071126" />
-              <Text style={styles.headerDownloadText}>{compact ? 'APK' : 'GET THE APK'}</Text>
+              <View style={styles.headerDownloadIcon}>
+                <FontAwesome5 name="download" size={11} color="#e0f2fe" />
+              </View>
+              <View>
+                <Text style={styles.headerDownloadText}>{tiny ? 'APK' : compact ? 'DOWNLOAD' : 'DOWNLOAD FOR ANDROID'}</Text>
+                {!compact ? <Text style={styles.headerDownloadMeta}>SIGNED APK · DIRECT INSTALL</Text> : null}
+              </View>
+              {!compact ? <FontAwesome5 name="arrow-right" size={10} color="#071126" /> : null}
             </TouchableOpacity>
           </View>
         </View>
@@ -278,38 +280,6 @@ export const DownloadScreen = () => {
               Download HAGOKILLER to understand snoring patterns, connect your smart pillow,
               and turn every night into practical wellness insights.
             </Text>
-
-            <View style={[styles.downloadActions, compact && styles.downloadActionsCompact]}>
-              <TouchableOpacity
-                accessibilityRole="link"
-                accessibilityLabel="Download HAGOKILLER Android APK via browser"
-                style={styles.primaryDownload}
-                onPress={downloadApk}
-                activeOpacity={0.88}
-              >
-                <View style={styles.downloadIconWell}>
-                  <FontAwesome5 name="download" size={15} color="#071126" />
-                </View>
-                <View style={styles.downloadCopy}>
-                  <Text style={styles.primaryDownloadLabel}>Download via browser</Text>
-                  <Text style={styles.primaryDownloadMeta}>Android APK · Preview release</Text>
-                </View>
-                <FontAwesome5 name="arrow-right" size={13} color="#071126" />
-              </TouchableOpacity>
-
-              <View
-                accessibilityRole="button"
-                accessibilityState={{ disabled: true }}
-                accessibilityLabel="Google Play download currently unavailable"
-                style={[styles.storeUnavailable, compact && styles.storeUnavailableCompact]}
-              >
-                <FontAwesome5 name="google-play" size={20} color="#7e97b8" />
-                <View style={styles.downloadCopy}>
-                  <Text style={styles.storeLabel}>Google Play</Text>
-                  <Text style={styles.storeMeta}>Currently not available on Play Store</Text>
-                </View>
-              </View>
-            </View>
 
             <View style={styles.compatibilityRow}>
               <FontAwesome5 name="check-circle" size={11} color="#34d399" solid />
@@ -368,18 +338,9 @@ export const DownloadScreen = () => {
             <Text style={styles.qrBody}>
               Open your Android camera, point it at the QR code, and follow the link to the latest HAGOKILLER APK.
             </Text>
-            <View style={styles.qrSafetyRow}>
-              <View style={styles.qrSafetyIcon}>
-                <FontAwesome5 name="shield-alt" size={11} color="#34d399" />
-              </View>
-              <View style={styles.qrSafetyCopy}>
-                <Text style={styles.qrSafetyTitle}>Direct release link</Text>
-                <Text style={styles.qrSafetyText}>The code opens the official HAGOKILLER GitHub release asset.</Text>
-              </View>
-            </View>
           </View>
 
-          <View style={[styles.qrCard, compact && styles.qrCardCompact]}>
+          <View style={[styles.qrCard, desktop && styles.qrCardDesktop, compact && styles.qrCardCompact]}>
             <View style={styles.qrImageFrame}>
               <Image
                 source={require('../../assets/hagokiller-download-qr.png')}
@@ -655,70 +616,53 @@ const styles = StyleSheet.create({
     shadowColor: '#fde68a', shadowOpacity: 0.9, shadowRadius: 7,
   },
   nav: {
-    width: '92%', maxWidth: 1180, alignSelf: 'center', marginTop: 14, paddingHorizontal: 16, paddingVertical: 12,
+    width: '100%', alignSelf: 'center', paddingHorizontal: 20, paddingVertical: 14,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 3,
-    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(56, 189, 248, 0.22)',
-    backgroundColor: 'rgba(8, 24, 48, 0.88)', shadowColor: '#020617', shadowOpacity: 0.35, shadowRadius: 18,
+    borderBottomWidth: 1, borderBottomColor: 'rgba(56, 189, 248, 0.2)',
+    backgroundColor: 'rgba(5, 15, 32, 0.94)', shadowColor: '#020617', shadowOpacity: 0.42, shadowRadius: 22,
   },
-  navCompact: { width: '94%', marginTop: 8, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 16 },
+  navDesktop: { paddingHorizontal: 48, paddingVertical: 16 },
+  navCompact: { paddingHorizontal: 12, paddingVertical: 10 },
   brand: { flexDirection: 'row', alignItems: 'center' },
   brandMark: {
-    width: 42, height: 42, borderRadius: 13, overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
-    backgroundColor: '#0284c7', marginRight: 11, borderWidth: 1, borderColor: '#38bdf8',
+    width: 48, height: 48, borderRadius: 15, overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#0284c7', marginRight: 12, borderWidth: 1, borderColor: 'rgba(125, 211, 252, 0.72)',
+    shadowColor: '#38bdf8', shadowOpacity: 0.28, shadowRadius: 12,
   },
+  brandMarkCompact: { width: 42, height: 42, borderRadius: 13, marginRight: 9 },
   brandArtwork: { width: '100%', height: '100%' },
-  brandName: { color: '#ffffff', fontSize: 14, fontWeight: '900', letterSpacing: 1.2 },
-  brandSub: { color: '#6f89a9', fontSize: 7, fontWeight: '800', letterSpacing: 1.25, marginTop: 2 },
+  brandCopy: { justifyContent: 'center' },
+  brandEyebrow: { color: '#38bdf8', fontSize: 7, fontWeight: '900', letterSpacing: 1.4, marginBottom: 2 },
+  brandName: { color: '#ffffff', fontSize: 16, fontWeight: '900', letterSpacing: 1.35 },
+  brandSub: { color: '#7890aa', fontSize: 7, fontWeight: '800', letterSpacing: 1.05, marginTop: 3 },
   headerActions: { flexDirection: 'row', alignItems: 'center' },
-  previewPill: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 11, paddingVertical: 7,
-    borderRadius: 999, backgroundColor: 'rgba(16, 36, 66, 0.76)', borderWidth: 1, borderColor: '#294a78', marginRight: 9,
-  },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#34d399', marginRight: 7 },
-  previewText: { color: '#a9bfdf', fontSize: 8, fontWeight: '900', letterSpacing: 1 },
   headerDownload: {
-    minHeight: 36, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 15,
-    borderRadius: 12, backgroundColor: '#38bdf8', shadowColor: '#0ea5e9', shadowOpacity: 0.28, shadowRadius: 10,
+    minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10,
+    borderRadius: 15, backgroundColor: '#38bdf8', shadowColor: '#0ea5e9', shadowOpacity: 0.32, shadowRadius: 14,
   },
-  headerDownloadCompact: { minHeight: 36, paddingHorizontal: 12 },
-  headerDownloadText: { color: '#071126', fontSize: 9, fontWeight: '900', letterSpacing: 0.7, marginLeft: 7 },
+  headerDownloadCompact: { minHeight: 42, paddingHorizontal: 10 },
+  headerDownloadIcon: {
+    width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#075985', marginRight: 9,
+  },
+  headerDownloadText: { color: '#071126', fontSize: 9, fontWeight: '900', letterSpacing: 0.65, marginRight: 12 },
+  headerDownloadMeta: { color: '#164e63', fontSize: 7, fontWeight: '800', letterSpacing: 0.35, marginTop: 2, marginRight: 12 },
   hero: { width: '100%', maxWidth: 1180, alignSelf: 'center', paddingHorizontal: 24, paddingTop: 26, zIndex: 2 },
-  heroDesktop: { minHeight: 660, flexDirection: 'row', alignItems: 'center', paddingTop: 10 },
+  heroDesktop: { minHeight: 600, flexDirection: 'row', alignItems: 'center', paddingTop: 10 },
   heroCopy: { zIndex: 2 },
   heroCopyDesktop: { width: '52%', paddingRight: 24 },
   heroEyebrowRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
   heroEyebrow: { color: '#7dd3fc', fontSize: 9, fontWeight: '900', letterSpacing: 1.7, marginLeft: 8 },
   heroTitle: { color: '#f8fbff', fontSize: 46, lineHeight: 50, fontWeight: '900', letterSpacing: -1.5 },
-  heroTitleDesktop: { fontSize: 68, lineHeight: 72, letterSpacing: -2.5 },
+  heroTitleDesktop: { fontSize: 62, lineHeight: 66, letterSpacing: -2.2 },
   heroTitleCompact: { fontSize: 38, lineHeight: 42 },
   heroTitleAccent: { color: '#38bdf8' },
   heroBody: { color: '#a9bfdf', fontSize: 15, lineHeight: 24, marginTop: 20, maxWidth: 620 },
   heroBodyDesktop: { fontSize: 17, lineHeight: 27, maxWidth: 570 },
-  downloadActions: { flexDirection: 'row', alignItems: 'stretch', marginTop: 28 },
-  downloadActionsCompact: { flexDirection: 'column' },
-  primaryDownload: {
-    minHeight: 64, minWidth: 260, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 15,
-    borderRadius: 18, backgroundColor: '#38bdf8', marginRight: 10, shadowColor: '#0ea5e9',
-    shadowOpacity: 0.3, shadowRadius: 18,
-  },
-  downloadIconWell: {
-    width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.55)', marginRight: 11,
-  },
-  downloadCopy: { flex: 1 },
-  primaryDownloadLabel: { color: '#071126', fontSize: 14, fontWeight: '900' },
-  primaryDownloadMeta: { color: '#164e73', fontSize: 9, fontWeight: '700', marginTop: 3 },
-  storeUnavailable: {
-    minHeight: 64, minWidth: 205, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 17,
-    borderRadius: 18, backgroundColor: 'rgba(16, 36, 66, 0.72)', borderWidth: 1, borderColor: '#294a78',
-  },
-  storeUnavailableCompact: { marginTop: 10 },
-  storeLabel: { color: '#a9bfdf', fontSize: 13, fontWeight: '800', marginLeft: 12 },
-  storeMeta: { color: '#6f89a9', fontSize: 9, marginLeft: 12, marginTop: 3 },
   compatibilityRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
   compatibilityText: { color: '#7890aa', fontSize: 10, fontWeight: '700', marginLeft: 7 },
   heroVisual: { minHeight: 470, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
-  heroVisualDesktop: { width: '48%', minHeight: 620, marginTop: 0 },
+  heroVisualDesktop: { width: '48%', minHeight: 560, marginTop: 0 },
   heroOrbitLarge: {
     position: 'absolute', width: '88%', aspectRatio: 1, borderRadius: 999, borderWidth: 1,
     borderColor: 'rgba(56, 189, 248, 0.22)', transform: [{ rotate: '-12deg' }],
@@ -727,7 +671,7 @@ const styles = StyleSheet.create({
     position: 'absolute', width: '68%', aspectRatio: 1, borderRadius: 999, borderWidth: 1,
     borderColor: 'rgba(253, 230, 138, 0.2)', transform: [{ rotate: '18deg' }],
   },
-  heroHagosaur: { width: '100%', height: 590, zIndex: 2 },
+  heroHagosaur: { width: '100%', height: 540, zIndex: 2 },
   heroHagosaurCompact: { height: 440 },
   spark: { position: 'absolute', width: 7, height: 7, borderRadius: 2, backgroundColor: '#fde68a', transform: [{ rotate: '45deg' }] },
   sparkOne: { top: '11%', left: '14%' },
@@ -758,13 +702,9 @@ const styles = StyleSheet.create({
   qrTitle: { color: '#f8fbff', fontSize: 38, lineHeight: 43, fontWeight: '900', letterSpacing: -1 },
   qrTitleCompact: { fontSize: 29, lineHeight: 34 },
   qrBody: { color: '#8fa8c7', fontSize: 14, lineHeight: 22, marginTop: 14, maxWidth: 560 },
-  qrSafetyRow: { flexDirection: 'row', alignItems: 'center', marginTop: 24 },
-  qrSafetyIcon: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(52, 211, 153, 0.1)', borderWidth: 1, borderColor: 'rgba(52, 211, 153, 0.2)', marginRight: 10 },
-  qrSafetyCopy: { flex: 1 },
-  qrSafetyTitle: { color: '#d9e8f7', fontSize: 11, fontWeight: '800' },
-  qrSafetyText: { color: '#6f89a9', fontSize: 9, lineHeight: 14, marginTop: 2 },
-  qrCard: { width: '43%', maxWidth: 390, alignSelf: 'center', padding: 18, borderRadius: 26, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#bae6fd', shadowColor: '#0ea5e9', shadowOpacity: 0.2, shadowRadius: 24 },
-  qrCardCompact: { width: '100%' },
+  qrCard: { width: '100%', maxWidth: 390, alignSelf: 'center', padding: 18, borderRadius: 26, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#bae6fd', shadowColor: '#0ea5e9', shadowOpacity: 0.2, shadowRadius: 24 },
+  qrCardDesktop: { width: '43%' },
+  qrCardCompact: { maxWidth: 360 },
   qrImageFrame: { width: '100%', aspectRatio: 1, padding: 8, borderRadius: 18, backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#dce7ef' },
   qrImage: { width: '100%', height: '100%' },
   qrCardCaption: { flexDirection: 'row', alignItems: 'center', paddingTop: 14 },

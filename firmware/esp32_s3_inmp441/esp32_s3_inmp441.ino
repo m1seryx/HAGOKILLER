@@ -1,8 +1,8 @@
 /*
- * HAGOKILLER - ESP32-S3 + INMP441 + Edge Impulse
+ * HAGOKILLER - ESP32-S3 + INMP441 + light Hagokiller_inferencing
  * - BLE server for phone app (name: HAGOKILLER Pillow)
  * - ESP-NOW sender to air-pump ESP32
- * - LED flashes 2 times when the app connects, then IoT (mic + ML) starts
+ * - LED flashes 2 times when the app connects, then IoT (mic + detector) starts
  *
  * INMP441:
  *   VDD -> 3.3V
@@ -16,23 +16,57 @@
  * Upload pump (ESP-NOW) first, then this mic board.
  * Serial: 115200
  *
- * Color coding after IoT starts:
- *   WHITE = no sound  (ML is NOT run)
- *   RED   = sound heard, not snoring
- *   BLUE  = snoring
+ * Color coding:
+ *   AMBER    = idle / waiting for app
+ *   WHITE    = no sound (quiet)
+ *   RED      = sound heard, not snoring
+ *   BLUE     = snoring
+ *   MAGENTA  = air pump motor running (mic ignored)
+ *   TEAL     = snore detection stopped from app
+ *   ORANGE   = phone risk alarm muted the mic
+ *   (After pump: settle still ignores snore counts, LED returns to white/red/blue)
  *
- * ML decision: snore wins only if score >= 60% and higher than non-snore.
+ * Detector: ONE ML zip — Hagokiller_inferencing (MFCC-only)
+ *   Impulse 2s window / 500ms stride / 16kHz → continuous slices
+ *   Labels: non_snoring | snoring   Decision: accept snore only if snore>=60%
+ *   Light RAM: STATIC arena, KissFFT, 500ms buffer, ML only when sound
+ * Pump mute LED = magenta only while pump motor runs (settle keeps counting muted).
  * Counting: min 5s between counted snores; mute during pump/valve + settle.
+ * Serial Monitor: 115200 baud. Arduino Tools (must match — TinyUSB + Hardware
+ *   CDC together = blank Serial):
+ *   Board           = ESP32S3 Dev Module
+ *   Partition Scheme= Default (mapped to Huge APP 3MB — required for ML)
+ *   Optimize        = Smallest (-Os)   (optional)
+ *   USB CDC On Boot = Enabled
+ *   USB Mode        = Hardware CDC and JTAG
+ *   Upload Mode     = UART0 / Hardware CDC   ← not "USB-OTG CDC (TinyUSB)"
  *
  * Pillow cycle (with air-pump ESP):
- *   3 snores -> full inflate -> elevated
- *   still snore elevated -> top-up 2s -> after 1 min solenoid 3s
- *   still snore -> gradual short valve pulses (pump board)
- *   quiet elevated -> 10 min hold -> solenoid 10s full deflate
+ *   rolling window: N snores in W seconds (app defaults: 3 in 15s)
+ *     -> one pump burst for the app pump seconds (default 40s)
+ *   mic ignores snores during the burst + 8s settle
+ *   pillow then stays elevated (no automatic deflation)
+ *   max 1 burst per inflation; further snoring ~10s -> phone risk alarm (once)
+ *   valve never opens automatically; app "open valve" releases air and resets
  *
  * Phone settings (BLE): snore count, window seconds, pump seconds, mic shift.
- * Phone commands (BLE): manual stop pump, open solenoid valve.
+ * Phone commands (BLE): stop pump, open valve, test pump, mute/unmute mic.
+ * Settings/commands require a successful PIN pair first.
+ *
+ * One Edge Impulse library only: Hagokiller_inferencing.
  */
+
+/**
+ * RAM: BLE + WiFi leave little fragmented heap.
+ * MFCC-only model (~1300 features).
+ * - STATIC EI buffers
+ * - KissFFT (no ESP-DSP malloc)
+ * - Continuous 500ms slices (16KB) instead of full 2s buffer (64KB)
+ */
+#define EIDSP_QUANTIZE_FILTERBANK 0
+#define EI_CLASSIFIER_ALLOCATION_STATIC
+#define EIDSP_USE_ESP_DSP 0
+#define EIDSP_INCLUDE_KISSFFT 1
 
 #include <Arduino.h>
 #include <driver/i2s.h>
@@ -46,14 +80,23 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
-#include <azeem01nnie-project-1_inferencing.h>
+#include <Hagokiller_inferencing.h>
 #include "esp32-hal-rgb-led.h"
+#include "hagokiller_packets.h"
+
+// Default loop stack is 8KB (EI overflows → reboot).
+// 24KB is enough for KissFFT MFCC + BLE without stealing too much heap.
+SET_LOOP_TASK_STACK_SIZE(24 * 1024);
 
 #define I2S_WS     4
 #define I2S_SCK    5
 #define I2S_SD     6
 #define I2S_PORT   I2S_NUM_0
 #define SAMPLE_RATE 16000
+/** One continuous slice = window / 4 = 500ms @ 16kHz. */
+#define EI_SLICE_COUNT EI_CLASSIFIER_SLICE_SIZE
+/** Raw peak before micShift — used for channel auto-pick + Serial debug. */
+#define RAW_MIC_ALIVE_MIN 64
 
 #if defined(RGB_BUILTIN)
   #define RGB_LED_PIN RGB_BUILTIN
@@ -61,16 +104,24 @@
   #define RGB_LED_PIN 48
 #endif
 
-#define MIC_SHIFT_DEFAULT 15
-#define CALIBRATE_N 20
-#define RMS_RATIO 1.60f
-#define RMS_MARGIN 200.0f
-#define PEAK_RATIO 1.70f
-#define PEAK_MARGIN 500
-#define LOUD_STREAK_NEED 2
+/** Lower shift = more gain / longer listening range. */
+#define MIC_SHIFT_MIN 8
+#define MIC_SHIFT_MAX 16
+#define MIC_SHIFT_DEFAULT 9
+/** Absolute sound gate (RMS): quiet vs any sound — skip ML when quiet. */
+#define SOUND_RMS_MIN 150.0f
+/** Accept snore only when snoring score >= 60%. */
+#define SNORE_MIN_SCORE 0.60f
+#define NON_SNORE_MIN_SCORE 0.50f
+/** Do not swap Studio labels. */
+#define SWAP_SNORE_LABELS 0
+/** Consecutive ML snore wins required before counting. */
+#define LOUD_STREAK_NEED 1
+/** Min gap between mic-test BLE notifies. */
+#define MIC_TEST_NOTIFY_MS 280UL
 #define PUMP_SEC_MIN 5
 #define PUMP_SEC_MAX 120
-#define PUMP_SEC_DEFAULT 12
+#define PUMP_SEC_DEFAULT 40
 #define SNORE_WINDOW_DEFAULT 15
 #define SNORE_WINDOW_MIN 5
 #define SNORE_WINDOW_MAX 60
@@ -79,17 +130,18 @@
 #define SNORE_MIN_GAP_MS 5000UL
 /** Extra quiet time after pump finishes before counting snores again. */
 #define POST_PUMP_MUTE_MS 8000UL
-/** Require clearer snore confidence than plain 50/50. */
-#define SNORE_MIN_SCORE 0.60f
+/** Serial UI bar width for live detect cards. */
+#define SERIAL_BAR_W 20
 #define VALVE_SEC_DEFAULT 10
-#define TOPUP_SEC 2
-#define TOPUP_SEND_COOLDOWN_MS 90000UL
-#define QUIET_CONFIRM_MS 30000UL
-#define QUIET_HOLD_MS (10UL * 60UL * 1000UL)
+/** One pump run per inflation. The app sets how long that run lasts. */
+#define MAX_BURSTS_PER_INFLATION 1
+/** Snoring must continue this long after the pump max before the phone alarm. */
+#define HOLD_ALERT_WAIT_MS 10000UL
+/** A snore pause longer than this restarts the alert wait. */
+#define HOLD_SNORE_GAP_MS 30000UL
 #define SEND_COOLDOWN_MS 2000
 #define ESPNOW_CHANNEL 1
 #define HEARTBEAT_MS 3000
-#define EI_SAMPLE_COUNT EI_CLASSIFIER_RAW_SAMPLE_COUNT
 
 #define DEVICE_NAME "HAGOKILLER Pillow"
 #define PAIR_PIN    "1234567"
@@ -99,64 +151,51 @@
 #define AUTH_CHAR_UUID     "6ba1d003-8e2a-4b7c-9f10-22c0a1b2c3d4"
 #define EVENT_CHAR_UUID    "6ba1d004-8e2a-4b7c-9f10-22c0a1b2c3d4"
 #define SETTINGS_CHAR_UUID "6ba1d005-8e2a-4b7c-9f10-22c0a1b2c3d4"
-
-static int16_t audio_buffer[EI_SAMPLE_COUNT];
+static int16_t audio_buffer[EI_SLICE_COUNT];
+uint8_t loudStreak = 0;
+static bool classifierReady = false;
+static bool continuousWarm = false;
+/** Last capture: max |raw| before micShift (0 = I2S silence / wrong channel). */
+static int lastRawPeak = 0;
+/** Active I2S RX slot: LEFT if mic L/R→GND, RIGHT if L/R→3V3. */
+static i2s_channel_fmt_t i2sChannelFmt = I2S_CHANNEL_FMT_ONLY_LEFT;
 bool i2sReady = false;
 bool iotStarted = false;
 volatile bool phoneConnected = false;
 volatile bool pendingConnectFlash = false;
-bool phoneAuthenticated = false;
+volatile bool pendingStartIot = false;
+volatile bool pendingAdvertise = false;
+volatile bool phoneAuthenticated = false;
+volatile bool phoneAlarmMute = false;
+/** App start/stop snore detection. Stays off until the user taps Start. */
+volatile bool snoreDetectionEnabled = false;
+bool espNowReady = false;
 unsigned long lastSendMs = 0;
-unsigned long lastBleStatusMs = 0;
 unsigned long lastHeartbeatMs = 0;
-unsigned long pumpLockUntilMs = 0;
-float noiseRms = 120.0f;
-int noisePeak = 300;
 uint8_t micShift = MIC_SHIFT_DEFAULT;
 uint8_t snoreThreshold = 3;
 uint8_t snoreWindowSec = SNORE_WINDOW_DEFAULT;
 uint8_t pumpSeconds = PUMP_SEC_DEFAULT;
 uint8_t snoreStreak = 0;
-uint8_t loudStreak = 0;
-bool pendingRecalibrate = false;
+/** Settings mic-test mode (only while overnight detection is paused). */
+volatile bool micTestActive = false;
+unsigned long lastMicTestNotifyMs = 0;
 unsigned long snoreTimes[SNORE_TIMES_MAX];
 uint8_t snoreTimeCount = 0;
 unsigned long lastCountedSnoreMs = 0;
 unsigned long listenMuteUntilMs = 0;
 bool pillowElevated = false;
-unsigned long quietSinceMs = 0;
-unsigned long lastTopupSendMs = 0;
+bool pumpSessionActive = false;
+unsigned long pumpSessionStartMs = 0;
+unsigned long pumpSessionMaxMs = 0;
+uint8_t burstCount = 0;
+unsigned long capSnoreStartMs = 0;
+unsigned long capLastSnoreMs = 0;
+bool maxHoldAlerted = false;
 
 BLECharacteristic *authChar = nullptr;
 BLECharacteristic *eventChar = nullptr;
 BLEServer *bleServer = nullptr;
-
-typedef struct __attribute__((packed)) {
-  uint32_t magic;
-  uint8_t  event;
-  uint8_t  level;
-  uint16_t rms;
-  uint8_t  pumpSeconds;
-  uint8_t  streak;
-  uint8_t  flags;
-  uint8_t  reserved;
-} PumpMsg;
-
-typedef struct __attribute__((packed)) {
-  uint32_t magic;
-  uint8_t  snoreThreshold;
-  uint8_t  pumpSeconds;
-  uint8_t  micShift;
-  uint8_t  snoreWindowSec;
-} SettingsMsg;
-
-typedef struct __attribute__((packed)) {
-  uint32_t magic;
-  uint8_t  opcode;
-  uint8_t  argSeconds;
-  uint8_t  reserved0;
-  uint8_t  reserved1;
-} CommandMsg;
 
 static const uint32_t MSG_MAGIC = 0x48474F4B;
 static const uint32_t SETTINGS_MAGIC = 0x48475354;
@@ -165,10 +204,27 @@ static const uint8_t EVENT_SOUND = 1;
 static const uint8_t EVENT_HEARTBEAT = 2;
 static const uint8_t EVENT_STOP = 3;
 static const uint8_t EVENT_OPEN_VALVE = 4;
-static const uint8_t EVENT_SNORE_ACTIVE = 5;
+static const uint8_t EVENT_TEST_PUMP = 8;   // mic -> pump: short manual test, no state change
+/** BLE only: Settings mic test — level=snore%, rms=non%, streak=0 quiet / 1 non / 2 snore. */
+static const uint8_t EVENT_MIC_TEST = 9;
 static const uint8_t FLAG_INTERVENTION = 0x01;
+/** Mic -> pump: pillow is flat, start a fresh inflation cycle. */
+static const uint8_t FLAG_NEW_CYCLE = 0x02;
+/** Mic -> phone: still snoring with the pump time used up, pillow holding position. */
+static const uint8_t FLAG_MAX_HOLD = 0x04;
 static const uint8_t CMD_STOP = 1;
 static const uint8_t CMD_OPEN_VALVE = 2;
+static const uint8_t CMD_TEST_PUMP = 3;
+/** Phone risk alarm is ringing — ignore mic so the ringtone is not counted as snoring. */
+static const uint8_t CMD_MUTE_MIC = 4;
+static const uint8_t CMD_UNMUTE_MIC = 5;
+/** App toggles overnight listening without unpairing. */
+static const uint8_t CMD_STOP_DETECTION = 6;
+static const uint8_t CMD_START_DETECTION = 7;
+/** Settings screen mic test (preview scores only; detection must be paused). */
+static const uint8_t CMD_MIC_TEST_START = 8;
+static const uint8_t CMD_MIC_TEST_STOP = 9;
+
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 void setRgb(uint8_t r, uint8_t g, uint8_t b)
@@ -176,9 +232,17 @@ void setRgb(uint8_t r, uint8_t g, uint8_t b)
     neopixelWrite(RGB_LED_PIN, r, g, b);
 }
 
+/** Soft amber — waiting for app / idle (not snore blue). */
+void ledIdleWaiting() { setRgb(60, 28, 0); }
 void ledWhiteNoSound() { setRgb(255, 255, 255); }
 void ledRedNonSnoring() { setRgb(255, 0, 0); }
 void ledBlueSnoring() { setRgb(0, 0, 255); }
+/** Magenta — only while the air-pump motor is running. */
+void ledPumpMute() { setRgb(220, 0, 180); }
+/** Teal — snore detection stopped from the app. */
+void ledDetectionStopped() { setRgb(0, 160, 160); }
+/** Orange — phone risk alarm muted the mic. */
+void ledPhoneAlarmMute() { setRgb(255, 140, 0); }
 
 void flashBluetoothConnected()
 {
@@ -199,8 +263,13 @@ void setAuth(bool ok)
         authChar->notify();
     }
     if (ok) {
-        Serial.println("BLE: PIN ok - app paired with ESP32");
+        pendingStartIot = true;
+        // Do not auto-listen — wait for app Start (countdown).
+        snoreDetectionEnabled = false;
+        Serial.println("BLE: PIN ok - app paired (detection paused until Start)");
     } else {
+        pendingStartIot = false;
+        snoreDetectionEnabled = false;
         Serial.println("BLE: PIN cleared");
     }
     Serial.flush();
@@ -210,6 +279,8 @@ class PhoneServerCallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer *pServer) override {
         phoneConnected = true;
         pendingConnectFlash = true;
+        // Require a fresh correct PIN every session — never inherit a prior AUTH=1.
+        setAuth(false);
         Serial.println("BLE: app connected to ESP32");
         Serial.println("BLE: waiting for 7-digit PIN...");
         Serial.flush();
@@ -218,12 +289,15 @@ class PhoneServerCallbacks : public BLEServerCallbacks {
     void onDisconnect(BLEServer *pServer) override {
         phoneConnected = false;
         iotStarted = false;
+        phoneAlarmMute = false;
+        micTestActive = false;
         setAuth(false);
+        // Defer advertising restart to loop() — calling it inside the
+        // disconnect callback often fails and the pillow stays undiscoverable.
+        pendingAdvertise = true;
         Serial.println("BLE: app disconnected");
-        pServer->startAdvertising();
-        Serial.println("BLE: waiting for app...");
         Serial.flush();
-        setRgb(0, 0, 40);
+        ledIdleWaiting();
     }
 };
 
@@ -231,16 +305,26 @@ class PinCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
         String pin = pCharacteristic->getValue();
         pin.trim();
+        // Keep only digits (drop nulls / BLE padding).
+        String digits;
+        for (unsigned i = 0; i < pin.length(); i++) {
+            char c = pin.charAt(i);
+            if (c >= '0' && c <= '9') digits += c;
+        }
         Serial.print("BLE: PIN from app: ");
-        Serial.println(pin);
+        Serial.println(digits);
         Serial.flush();
 
-        if (pin == PAIR_PIN) {
+        if (digits == PAIR_PIN) {
             setAuth(true);
         } else {
             setAuth(false);
             Serial.println("BLE: bad PIN - not paired");
             Serial.flush();
+            // Drop the GATT link so a wrong PIN cannot stay connected.
+            if (bleServer) {
+                bleServer->disconnect(bleServer->getConnId());
+            }
         }
     }
 };
@@ -258,30 +342,39 @@ void clearSnoreWindow()
     snoreStreak = 0;
 }
 
-void clearElevatedState()
+void endPumpSession(unsigned long now, const char *reason, bool sendStop);
+
+void markPillowFlat()
 {
     pillowElevated = false;
-    quietSinceMs = 0;
-    lastTopupSendMs = 0;
+    burstCount = 0;
+    capSnoreStartMs = 0;
+    maxHoldAlerted = false;
+}
+
+void clearActuatorMute()
+{
+    listenMuteUntilMs = 0;
 }
 
 void armActuatorMute(unsigned long now, unsigned long actuatorMs)
 {
-    unsigned long until = now + actuatorMs + POST_PUMP_MUTE_MS;
-    if ((long)(until - listenMuteUntilMs) > 0) listenMuteUntilMs = until;
+    // Mute through actuator run + settle. Cap so a bad packet cannot lock the mic.
+    unsigned long span = actuatorMs + POST_PUMP_MUTE_MS;
+    if (span > 180000UL) span = 180000UL;
+    unsigned long until = now + span;
+    if (listenMuteUntilMs == 0 || (long)(until - listenMuteUntilMs) > 0) {
+        listenMuteUntilMs = until;
+    }
     clearSnoreWindow();
-}
-
-void armPostPumpMute(unsigned long now)
-{
-    armActuatorMute(now, (unsigned long)pumpSeconds * 1000UL);
 }
 
 bool snoreListenMuted(unsigned long now)
 {
-    if ((long)(now - listenMuteUntilMs) < 0) return true;
-    if ((long)(now - pumpLockUntilMs) < 0) return true;
-    return false;
+    if (phoneAlarmMute) return true;
+    if (listenMuteUntilMs == 0) return false;
+    // True while now is still before the mute deadline.
+    return (long)(now - listenMuteUntilMs) < 0;
 }
 
 uint8_t refreshSnoreWindow(unsigned long now)
@@ -362,10 +455,9 @@ void applyCommandPacket(const uint8_t *data, size_t len)
     }
 
     if (msg.opcode == CMD_STOP) {
+        // Air stays in the pillow, so elevated state is kept.
+        if (pumpSessionActive) endPumpSession(millis(), "manual stop", false);
         clearSnoreWindow();
-        clearElevatedState();
-        pumpLockUntilMs = 0;
-        listenMuteUntilMs = 0;
         sendPumpControlEvent(EVENT_STOP, 0);
         Serial.println("BLE: manual STOP -> pump ESP");
         return;
@@ -373,15 +465,89 @@ void applyCommandPacket(const uint8_t *data, size_t len)
 
     if (msg.opcode == CMD_OPEN_VALVE) {
         uint8_t secs = msg.argSeconds == 0 ? VALVE_SEC_DEFAULT : clampU8(msg.argSeconds, 1, 30);
+        if (pumpSessionActive) endPumpSession(millis(), "valve opened", false);
         // Stop inflation first, then open valve.
         sendPumpControlEvent(EVENT_STOP, 0);
         delay(30);
         sendPumpControlEvent(EVENT_OPEN_VALVE, secs);
-        clearElevatedState();
+        markPillowFlat();
         armActuatorMute(millis(), (unsigned long)secs * 1000UL);
         Serial.print("BLE: OPEN VALVE -> pump ESP  ");
         Serial.print(secs);
         Serial.println(" sec");
+        return;
+    }
+
+    if (msg.opcode == CMD_TEST_PUMP) {
+        if (pumpSessionActive) {
+            Serial.println("BLE: TEST PUMP ignored - pump already running");
+            return;
+        }
+        uint8_t secs = msg.argSeconds == 0 ? 5 : clampU8(msg.argSeconds, 1, 10);
+        sendPumpControlEvent(EVENT_TEST_PUMP, secs);
+        // Pump motor noise must not count as snoring; pillow state is unchanged.
+        armActuatorMute(millis(), (unsigned long)secs * 1000UL);
+        Serial.print("BLE: TEST PUMP -> pump ESP  ");
+        Serial.print(secs);
+        Serial.println(" sec");
+        return;
+    }
+
+    if (msg.opcode == CMD_MUTE_MIC) {
+        phoneAlarmMute = true;
+        clearSnoreWindow();
+        resetContinuousClassifier();
+        Serial.println("BLE: MUTE MIC (phone alarm) — snore listening off");
+        return;
+    }
+
+    if (msg.opcode == CMD_UNMUTE_MIC) {
+        phoneAlarmMute = false;
+        resetContinuousClassifier();
+        Serial.println("BLE: UNMUTE MIC — snore listening on");
+        return;
+    }
+
+    if (msg.opcode == CMD_STOP_DETECTION) {
+        snoreDetectionEnabled = false;
+        clearSnoreWindow();
+        resetContinuousClassifier();
+        Serial.println("BLE: STOP DETECTION — snore listening paused");
+        return;
+    }
+
+    if (msg.opcode == CMD_START_DETECTION) {
+        // Overnight listening wins — end any Settings mic test.
+        micTestActive = false;
+        snoreDetectionEnabled = true;
+        clearSnoreWindow();
+        clearActuatorMute();
+        resetContinuousClassifier();
+        Serial.println("BLE: START DETECTION — snore listening on");
+        return;
+    }
+
+    if (msg.opcode == CMD_MIC_TEST_START) {
+        if (snoreDetectionEnabled) {
+            Serial.println("BLE: MIC TEST ignored — overnight detection is on (pause it first)");
+            return;
+        }
+        if (!iotStarted || !i2sReady) {
+            Serial.println("BLE: MIC TEST ignored — mic IoT not ready yet");
+            return;
+        }
+        micTestActive = true;
+        lastMicTestNotifyMs = 0;
+        clearActuatorMute();
+        resetContinuousClassifier();
+        Serial.println("BLE: MIC TEST start — preview scores only");
+        return;
+    }
+
+    if (msg.opcode == CMD_MIC_TEST_STOP) {
+        micTestActive = false;
+        resetContinuousClassifier();
+        Serial.println("BLE: MIC TEST stop");
         return;
     }
 
@@ -403,7 +569,7 @@ void applySettingsPacket(const uint8_t *data, size_t len)
         return;
     }
 
-    uint8_t nextShift = clampU8(msg.micShift, 12, 16);
+    uint8_t nextShift = clampU8(msg.micShift, MIC_SHIFT_MIN, MIC_SHIFT_MAX);
     bool shiftChanged = nextShift != micShift;
     snoreThreshold = clampU8(msg.snoreThreshold, 1, 10);
     pumpSeconds = clampU8(msg.pumpSeconds, PUMP_SEC_MIN, PUMP_SEC_MAX);
@@ -414,9 +580,7 @@ void applySettingsPacket(const uint8_t *data, size_t len)
         SNORE_WINDOW_MAX
     );
     clearSnoreWindow();
-    clearElevatedState();
-    pumpLockUntilMs = 0;
-    if (shiftChanged && iotStarted && i2sReady) pendingRecalibrate = true;
+    (void)shiftChanged;
 
     Serial.println("BLE: settings applied from app");
     printDeviceSettings();
@@ -424,6 +588,11 @@ void applySettingsPacket(const uint8_t *data, size_t len)
 
 class SettingsCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic *pCharacteristic) override {
+        if (!phoneAuthenticated) {
+            Serial.println("BLE: ignore settings/command — not paired");
+            return;
+        }
+
         String raw = pCharacteristic->getValue();
         const uint8_t *bytes = (const uint8_t *)raw.c_str();
         size_t len = raw.length();
@@ -459,6 +628,13 @@ void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
 
 bool setupEspNow()
 {
+    // Re-running WiFi.mode / WiFi.disconnect while BLE is connected drops the
+    // phone link. Init once at boot; later pair sessions reuse the peer.
+    if (espNowReady) {
+        Serial.println("ESP-NOW already ready — skip WiFi reinit (keeps BLE up)");
+        return true;
+    }
+
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
     delay(50);
@@ -485,6 +661,7 @@ bool setupEspNow()
         return false;
     }
 
+    espNowReady = true;
     Serial.print("ESP-NOW ready  ch=");
     Serial.print(ESPNOW_CHANNEL);
     Serial.print("  mic MAC=");
@@ -525,7 +702,6 @@ void setupPhoneBle()
         BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR
     );
     settingsChar->setCallbacks(new SettingsCallbacks());
-
     service->start();
 
     BLEAdvertising *adv = BLEDevice::getAdvertising();
@@ -583,21 +759,42 @@ void notifyPhone(uint8_t level, uint16_t rms, uint8_t streak, bool intervene)
     Serial.println("BLE notify -> phone");
 }
 
-bool pumpIsLocked(unsigned long now)
+void notifyPhonePump(uint8_t level, uint16_t rms, uint8_t streak, uint8_t seconds)
 {
-    return (long)(now - pumpLockUntilMs) < 0;
+    if (!phoneAuthenticated || eventChar == nullptr) return;
+
+    PumpMsg msg;
+    fillPumpMsgSeconds(msg, level, rms, streak, seconds);
+    eventChar->setValue((uint8_t *)&msg, sizeof(msg));
+    eventChar->notify();
+    Serial.println("BLE notify -> phone (pump started)");
 }
 
-bool notifyPumpFull(uint8_t level, uint16_t rms, uint8_t streak)
+void notifyPhoneMicTest(uint8_t snorePct, uint8_t nonPct, uint8_t verdict)
 {
+    if (!phoneAuthenticated || eventChar == nullptr) return;
     unsigned long now = millis();
-    if (pumpIsLocked(now)) {
-        unsigned long leftMs = pumpLockUntilMs - now;
-        Serial.print("ESP-NOW -> pump skipped (still in pump lock, ");
-        Serial.print((leftMs + 999UL) / 1000UL);
-        Serial.println("s left)");
-        return false;
-    }
+    if (lastMicTestNotifyMs != 0 && (now - lastMicTestNotifyMs) < MIC_TEST_NOTIFY_MS) return;
+    lastMicTestNotifyMs = now;
+
+    PumpMsg msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.magic = MSG_MAGIC;
+    msg.event = EVENT_MIC_TEST;
+    msg.level = snorePct;
+    msg.rms = nonPct;
+    msg.streak = verdict; // 0 quiet, 1 non-snore, 2 snore
+    eventChar->setValue((uint8_t *)&msg, sizeof(msg));
+    eventChar->notify();
+}
+
+/**
+ * Start one fixed-length pump burst. Snores are ignored while it runs (pump
+ * noise) plus POST_PUMP_MUTE_MS, and the rolling window starts over afterwards.
+ */
+bool startPumpBurst(unsigned long now, uint8_t seconds, bool newInflation,
+                    uint8_t level, uint16_t rms, uint8_t streak)
+{
     if (now - lastSendMs < SEND_COOLDOWN_MS) {
         Serial.println("ESP-NOW -> pump skipped (send cooldown)");
         return false;
@@ -605,96 +802,93 @@ bool notifyPumpFull(uint8_t level, uint16_t rms, uint8_t streak)
     lastSendMs = now;
 
     PumpMsg msg;
-    fillPumpMsgSeconds(msg, level, rms, streak, pumpSeconds);
+    fillPumpMsgSeconds(msg, level, rms, streak, seconds);
+    if (newInflation) msg.flags |= FLAG_NEW_CYCLE;
     esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
-    pumpLockUntilMs = now + (unsigned long)pumpSeconds * 1000UL;
-    Serial.print("ESP-NOW -> FULL pump  ");
-    Serial.print(pumpSeconds);
+
+    pumpSessionActive = true;
+    pumpSessionStartMs = now;
+    pumpSessionMaxMs = (unsigned long)seconds * 1000UL;
+    armActuatorMute(now, pumpSessionMaxMs);
+
+    Serial.print("ESP-NOW -> PUMP BURST ");
+    Serial.print(seconds);
     Serial.println(" sec");
     return true;
 }
 
-bool notifyPumpTopup(uint8_t level, uint16_t rms, uint8_t streak)
+void endPumpSession(unsigned long now, const char *reason, bool sendStop)
 {
-    unsigned long now = millis();
-    if (pumpIsLocked(now)) {
-        Serial.println("ESP-NOW -> top-up skipped (pump lock)");
-        return false;
-    }
-    if (lastTopupSendMs != 0 && (now - lastTopupSendMs) < TOPUP_SEND_COOLDOWN_MS) {
-        Serial.println("ESP-NOW -> top-up skipped (cooldown)");
-        return false;
-    }
-    if (now - lastSendMs < SEND_COOLDOWN_MS) {
-        Serial.println("ESP-NOW -> top-up skipped (send cooldown)");
-        return false;
-    }
-    lastSendMs = now;
-    lastTopupSendMs = now;
+    if (!pumpSessionActive) return;
+
+    unsigned long ranMs = now - pumpSessionStartMs;
+    if (ranMs > pumpSessionMaxMs) ranMs = pumpSessionMaxMs;
+
+    if (sendStop) sendPumpControlEvent(EVENT_STOP, 0);
+    pumpSessionActive = false;
+
+    // Settle time so leftover motor/pillow noise is not counted as a new snore.
+    listenMuteUntilMs = now + POST_PUMP_MUTE_MS;
+    clearSnoreWindow();
+
+    Serial.print(">>> PUMP STOPPED (");
+    Serial.print(reason);
+    Serial.print(") ran ");
+    Serial.print(ranMs / 1000.0f, 1);
+    Serial.print("s  bursts ");
+    Serial.print(burstCount);
+    Serial.print("/");
+    Serial.print(MAX_BURSTS_PER_INFLATION);
+    Serial.println(" — pillow stays elevated <<<");
+}
+
+void notifyPhoneMaxHold(uint8_t level, uint16_t rms, uint8_t streak)
+{
+    if (!phoneAuthenticated || eventChar == nullptr) return;
 
     PumpMsg msg;
-    fillPumpMsgSeconds(msg, level, rms, streak, TOPUP_SEC);
-    esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
-    pumpLockUntilMs = now + (unsigned long)TOPUP_SEC * 1000UL;
-    Serial.print("ESP-NOW -> TOP-UP pump  ");
-    Serial.print(TOPUP_SEC);
-    Serial.println(" sec");
-    return true;
+    fillPumpMsg(msg, level, rms, streak, false);
+    msg.flags |= FLAG_MAX_HOLD;
+    eventChar->setValue((uint8_t *)&msg, sizeof(msg));
+    eventChar->notify();
+    Serial.println("BLE notify -> phone (max elevation hold alert)");
 }
 
-void notifySnoreActive(uint8_t level, uint16_t rms, uint8_t streak)
+/** Snore with all bursts already used: hold, never deflate. */
+void handleSnoreAtPumpLimit(unsigned long now, uint8_t level, uint16_t rms, uint8_t streak)
 {
-    unsigned long now = millis();
-    if (now - lastSendMs < SEND_COOLDOWN_MS) return;
-    lastSendMs = now;
-
-    PumpMsg msg;
-    memset(&msg, 0, sizeof(msg));
-    msg.magic = MSG_MAGIC;
-    msg.event = EVENT_SNORE_ACTIVE;
-    msg.level = level;
-    msg.rms = rms;
-    msg.streak = streak;
-    esp_now_send(broadcastAddress, (uint8_t *)&msg, sizeof(msg));
-    Serial.println("ESP-NOW -> snore-active (elevated)");
-}
-
-bool notifyPump(uint8_t level, uint16_t rms, uint8_t streak)
-{
-    return notifyPumpFull(level, rms, streak);
-}
-
-void markSnoringWhileElevated(unsigned long now)
-{
-    quietSinceMs = 0;
-}
-
-void updateElevatedQuietWatch(unsigned long now, bool heardSnore)
-{
-    if (!pillowElevated) return;
-
-    if (heardSnore) {
-        quietSinceMs = 0;
+    if (maxHoldAlerted) {
+        notifyPhone(level, rms, streak, false);
+        Serial.println(">>> Burst limit reached — holding position (alert already sent) <<<");
         return;
     }
 
-    // Only advance quiet when not muted (real quiet, not actuator mute).
-    if (snoreListenMuted(now)) return;
+    if (capSnoreStartMs == 0 || now - capLastSnoreMs > HOLD_SNORE_GAP_MS) {
+        capSnoreStartMs = now;
+    }
+    capLastSnoreMs = now;
 
-    if (quietSinceMs == 0) {
-        if (lastCountedSnoreMs != 0 && (now - lastCountedSnoreMs) >= QUIET_CONFIRM_MS) {
-            quietSinceMs = now;
-            Serial.println("elevated quiet confirmed — 10 min hold started");
-        }
+    unsigned long snoringFor = now - capSnoreStartMs;
+    if (snoringFor < HOLD_ALERT_WAIT_MS) {
+        notifyPhone(level, rms, streak, false);
+        Serial.print(">>> Burst limit reached — holding, snoring ");
+        Serial.print(snoringFor / 1000UL);
+        Serial.print("/");
+        Serial.print(HOLD_ALERT_WAIT_MS / 1000UL);
+        Serial.println("s before app alert <<<");
         return;
     }
 
-    if ((now - quietSinceMs) >= QUIET_HOLD_MS) {
-        Serial.println("elevated quiet 10 min — request full deflate 10s");
-        sendPumpControlEvent(EVENT_OPEN_VALVE, VALVE_SEC_DEFAULT);
-        armActuatorMute(now, (unsigned long)VALVE_SEC_DEFAULT * 1000UL);
-        clearElevatedState();
-        clearSnoreWindow();
+    notifyPhoneMaxHold(level, rms, streak);
+    maxHoldAlerted = true;
+    Serial.println(">>> STILL SNORING AT MAX ELEVATION — holding position (no pump / no deflate) <<<");
+}
+
+void updatePumpSession(unsigned long now)
+{
+    if (!pumpSessionActive) return;
+    if (now - pumpSessionStartMs >= pumpSessionMaxMs) {
+        endPumpSession(now, "burst done", true);
     }
 }
 
@@ -736,25 +930,51 @@ int computePeak(const int16_t *buffer, int count)
     return peak;
 }
 
-bool labelIsSnoring(const char *label)
+void printDetectorBanner()
 {
-    if (!label) return false;
-    String s = String(label);
-    s.toLowerCase();
-    if (s.indexOf("non") >= 0) return false;
-    return s.indexOf("snor") >= 0;
+    serialBanner("LIGHT EI  ·  MFCC-only v3");
+    Serial.print("|  sample rate: ");
+    Serial.print(SAMPLE_RATE);
+    Serial.println(" Hz                         |");
+    Serial.print("|  slice: ");
+    Serial.print(EI_SLICE_COUNT);
+    Serial.print(" samples (~");
+    Serial.print((EI_SLICE_COUNT * 1000) / SAMPLE_RATE);
+    Serial.println("ms)                   |");
+    Serial.print("|  window ");
+    Serial.print(EI_CLASSIFIER_RAW_SAMPLE_COUNT / (SAMPLE_RATE / 1000));
+    Serial.print("ms / stride ");
+    Serial.print((EI_SLICE_COUNT * 1000) / SAMPLE_RATE);
+    Serial.println("ms              |");
+    Serial.print("|  features ");
+    Serial.print(EI_CLASSIFIER_NN_INPUT_FRAME_SIZE);
+    Serial.print(" (MFCC)  deploy v");
+    Serial.print(EI_CLASSIFIER_PROJECT_DEPLOY_VERSION);
+    Serial.println("      |");
+    Serial.print("|  quiet RMS < ");
+    Serial.print((int)SOUND_RMS_MIN);
+    Serial.println("  (skip ML)                 |");
+    Serial.print("|  decision  snore>=");
+    Serial.print((int)(SNORE_MIN_SCORE * 100.0f));
+    Serial.print("%  non>=");
+    Serial.print((int)(NON_SNORE_MIN_SCORE * 100.0f));
+    Serial.println("%          |");
+    Serial.println("|  Partition: Huge APP (3MB) required for ML  |");
+    serialRule('+', '-');
+    Serial.println();
+    Serial.flush();
 }
 
-bool setupI2S()
+bool setupI2S(i2s_channel_fmt_t channelFmt)
 {
     i2s_config_t i2s_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
         .sample_rate = SAMPLE_RATE,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+        .channel_format = channelFmt,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = 8,
+        .dma_buf_count = 4,
         .dma_buf_len = 256,
         .use_apll = false,
         .tx_desc_auto_clear = false,
@@ -781,110 +1001,159 @@ bool setupI2S()
     }
 
     i2s_zero_dma_buffer(I2S_PORT);
+    i2sChannelFmt = channelFmt;
     return true;
 }
 
-bool captureAudio()
+void teardownI2S()
+{
+    if (!i2sReady) return;
+    i2s_driver_uninstall(I2S_PORT);
+    i2sReady = false;
+}
+
+/** Quick raw-energy probe (ignores micShift). Speak/tap near mic while this runs. */
+int probeRawPeak(int reads)
 {
     size_t bytesRead = 0;
     int32_t i2s_buffer[256];
-    int samplesCollected = 0;
-
-    while (samplesCollected < EI_SAMPLE_COUNT) {
+    int rawPeak = 0;
+    for (int r = 0; r < reads; r++) {
         esp_err_t result = i2s_read(
             I2S_PORT,
             (void *)i2s_buffer,
             sizeof(i2s_buffer),
             &bytesRead,
-            portMAX_DELAY
+            pdMS_TO_TICKS(200)
         );
-
-        if (result != ESP_OK) {
-            Serial.println("ERROR: I2S read failed");
-            setRgb(80, 0, 80);
-            return false;
+        if (result != ESP_OK || bytesRead < sizeof(int32_t)) continue;
+        int n = (int)(bytesRead / sizeof(int32_t));
+        for (int i = 0; i < n; i++) {
+            int32_t s = i2s_buffer[i];
+            if (s == (int32_t)0x80000000) s = 0x7FFFFFFF;
+            else if (s < 0) s = -s;
+            if (s > rawPeak) rawPeak = s;
         }
+    }
+    return rawPeak;
+}
 
-        int samplesRead = bytesRead / sizeof(int32_t);
-        for (int i = 0; i < samplesRead && samplesCollected < EI_SAMPLE_COUNT; i++) {
-            int32_t sample = i2s_buffer[i] >> micShift;
-            if (sample > 32767) sample = 32767;
-            if (sample < -32768) sample = -32768;
-            audio_buffer[samplesCollected++] = (int16_t)sample;
+/**
+ * Install I2S and pick LEFT vs RIGHT slot.
+ * INMP441: L/R→GND = left, L/R→3V3 = right. Wrong slot → exact rms=0.
+ */
+bool setupI2SAutoChannel()
+{
+    const i2s_channel_fmt_t candidates[2] = {
+        I2S_CHANNEL_FMT_ONLY_LEFT,
+        I2S_CHANNEL_FMT_ONLY_RIGHT
+    };
+    const char *names[2] = { "LEFT (L/R→GND)", "RIGHT (L/R→3V3)" };
+    int bestIdx = 0;
+    int bestPeak = -1;
+
+    Serial.println("I2S: probing mic channel (make some noise)...");
+    for (int i = 0; i < 2; i++) {
+        teardownI2S();
+        if (!setupI2S(candidates[i])) {
+            continue;
+        }
+        i2sReady = true;
+        delay(50);
+        int peak = probeRawPeak(8);
+        Serial.print("  channel ");
+        Serial.print(names[i]);
+        Serial.print("  rawPeak=");
+        Serial.println(peak);
+        if (peak > bestPeak) {
+            bestPeak = peak;
+            bestIdx = i;
         }
     }
 
-    int32_t sum = 0;
-    for (int i = 0; i < EI_SAMPLE_COUNT; i++) sum += audio_buffer[i];
-    int16_t mean = (int16_t)(sum / EI_SAMPLE_COUNT);
-    for (int i = 0; i < EI_SAMPLE_COUNT; i++) {
-        int v = (int)audio_buffer[i] - (int)mean;
+    teardownI2S();
+    if (!setupI2S(candidates[bestIdx])) {
+        return false;
+    }
+    i2sReady = true;
+    Serial.print("I2S: using ");
+    Serial.print(names[bestIdx]);
+    Serial.print("  rawPeak=");
+    Serial.println(bestPeak);
+    if (bestPeak < RAW_MIC_ALIVE_MIN) {
+        Serial.println("WARN: mic looks dead — check wiring VDD/GND/SD/SCK/WS/L/R");
+    }
+    return true;
+}
+
+bool labelIsSnoring(const char *label)
+{
+    if (!label) return false;
+    String s = String(label);
+    s.toLowerCase();
+    if (s.indexOf("non") >= 0) return false;
+    return s.indexOf("snor") >= 0;
+}
+
+bool labelIsNonSnoring(const char *label)
+{
+    if (!label) return true;
+    String s = String(label);
+    s.toLowerCase();
+    if (s.indexOf("non") >= 0) return true;
+    return s.indexOf("snor") < 0;
+}
+
+void getClassScores(ei_impulse_result_t &result, float &snoringScore, float &nonSnoringScore)
+{
+    snoringScore = 0.0f;
+    nonSnoringScore = 0.0f;
+    for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
+        const char *lab = result.classification[i].label;
+        if (!lab || !lab[0]) {
+            lab = ei_classifier_inferencing_categories[i];
+        }
+        float v = result.classification[i].value;
+#if SWAP_SNORE_LABELS
+        if (labelIsSnoring(lab)) {
+            if (v > nonSnoringScore) nonSnoringScore = v;
+        } else if (labelIsNonSnoring(lab) || !labelIsSnoring(lab)) {
+            if (v > snoringScore) snoringScore = v;
+        }
+#else
+        if (labelIsSnoring(lab)) {
+            if (v > snoringScore) snoringScore = v;
+        } else if (labelIsNonSnoring(lab) || !labelIsSnoring(lab)) {
+            if (v > nonSnoringScore) nonSnoringScore = v;
+        }
+#endif
+    }
+}
+
+bool isSnoringWinner(float snoringScore, float nonSnoringScore)
+{
+    (void)nonSnoringScore;
+    // Only accept snoring when the snoring class is >= 60%.
+    return snoringScore >= SNORE_MIN_SCORE;
+}
+
+void peakNormalizeForMl()
+{
+    int peak = 1;
+    for (int i = 0; i < EI_SLICE_COUNT; i++) {
+        int s = abs((int)audio_buffer[i]);
+        if (s > peak) peak = s;
+    }
+    if (peak < 64) return;
+    float scale = (20000.0f) / (float)peak;
+    if (scale < 1.05f) return;
+    if (scale > 12.0f) scale = 12.0f;
+    for (int i = 0; i < EI_SLICE_COUNT; i++) {
+        int v = (int)lroundf((float)audio_buffer[i] * scale);
         if (v > 32767) v = 32767;
         if (v < -32768) v = -32768;
         audio_buffer[i] = (int16_t)v;
     }
-
-    return true;
-}
-
-static int cmpFloat(const void *a, const void *b)
-{
-    float fa = *(const float *)a;
-    float fb = *(const float *)b;
-    return (fa > fb) - (fa < fb);
-}
-
-void calibrateNoiseFloor()
-{
-    Serial.println("Calibrating mic (keep the room quiet)...");
-    Serial.flush();
-    setRgb(0, 0, 80);
-
-    float rmsList[CALIBRATE_N];
-    int peakList[CALIBRATE_N];
-    int okCount = 0;
-
-    for (int i = 0; i < CALIBRATE_N; i++) {
-        if (!captureAudio()) continue;
-        rmsList[okCount] = computeRms(audio_buffer, EI_SAMPLE_COUNT);
-        peakList[okCount] = computePeak(audio_buffer, EI_SAMPLE_COUNT);
-        okCount++;
-        delay(20);
-    }
-
-    if (okCount < 5) {
-        noiseRms = 120.0f;
-        noisePeak = 300;
-    } else {
-        qsort(rmsList, okCount, sizeof(float), cmpFloat);
-        noiseRms = rmsList[okCount / 2];
-        for (int i = 0; i < okCount; i++) {
-            for (int j = i + 1; j < okCount; j++) {
-                if (peakList[j] < peakList[i]) {
-                    int t = peakList[i];
-                    peakList[i] = peakList[j];
-                    peakList[j] = t;
-                }
-            }
-        }
-        noisePeak = peakList[okCount / 2];
-    }
-
-    if (noiseRms < 80.0f) noiseRms = 80.0f;
-    if (noisePeak < 160) noisePeak = 160;
-
-    Serial.print("Noise floor RMS=");
-    Serial.print(noiseRms, 1);
-    Serial.print(" Peak=");
-    Serial.println(noisePeak);
-    Serial.flush();
-}
-
-bool isHearingSound(float rms, int peak)
-{
-    float rmsThresh = noiseRms * RMS_RATIO + RMS_MARGIN;
-    int peakThresh = (int)(noisePeak * PEAK_RATIO) + PEAK_MARGIN;
-    return (rms > rmsThresh) && (peak > peakThresh);
 }
 
 int get_signal_data(size_t offset, size_t length, float *out_ptr)
@@ -895,34 +1164,187 @@ int get_signal_data(size_t offset, size_t length, float *out_ptr)
     return 0;
 }
 
-float getSnoringScore(ei_impulse_result_t &result)
+bool captureSlice(float &rms, int &peak)
 {
-    float best = 0.0f;
-    for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
-        if (labelIsSnoring(ei_classifier_inferencing_categories[i])) {
-            float v = result.classification[i].value;
-            if (v > best) best = v;
+    size_t bytesRead = 0;
+    int32_t i2s_buffer[256];
+    int samplesCollected = 0;
+    int rawPeak = 0;
+
+    while (samplesCollected < EI_SLICE_COUNT) {
+        esp_err_t result = i2s_read(
+            I2S_PORT,
+            (void *)i2s_buffer,
+            sizeof(i2s_buffer),
+            &bytesRead,
+            portMAX_DELAY
+        );
+
+        if (result != ESP_OK) {
+            Serial.println("ERROR: I2S read failed");
+            ledRedNonSnoring();
+            return false;
+        }
+
+        int samplesRead = (int)(bytesRead / sizeof(int32_t));
+        for (int i = 0; i < samplesRead && samplesCollected < EI_SLICE_COUNT; i++) {
+            int32_t raw = i2s_buffer[i];
+            int32_t absRaw = raw;
+            if (absRaw == (int32_t)0x80000000) absRaw = 0x7FFFFFFF;
+            else if (absRaw < 0) absRaw = -absRaw;
+            if (absRaw > rawPeak) rawPeak = absRaw;
+
+            int32_t sample = raw >> micShift;
+            if (sample > 32767) sample = 32767;
+            if (sample < -32768) sample = -32768;
+            audio_buffer[samplesCollected++] = (int16_t)sample;
         }
     }
-    return best;
-}
 
-float getNonSnoringScore(ei_impulse_result_t &result)
-{
-    float best = 0.0f;
-    for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
-        if (!labelIsSnoring(ei_classifier_inferencing_categories[i])) {
-            float v = result.classification[i].value;
-            if (v > best) best = v;
-        }
+    lastRawPeak = rawPeak;
+
+    int64_t sum = 0;
+    for (int i = 0; i < EI_SLICE_COUNT; i++) sum += audio_buffer[i];
+    int16_t mean = (int16_t)(sum / EI_SLICE_COUNT);
+    for (int i = 0; i < EI_SLICE_COUNT; i++) {
+        int v = (int)audio_buffer[i] - (int)mean;
+        if (v > 32767) v = 32767;
+        if (v < -32768) v = -32768;
+        audio_buffer[i] = (int16_t)v;
     }
-    return best;
+
+    rms = computeRms(audio_buffer, EI_SLICE_COUNT);
+    peak = computePeak(audio_buffer, EI_SLICE_COUNT);
+    return true;
 }
 
-bool isSnoringWinner(float snoringScore, float nonSnoringScore)
+void resetContinuousClassifier()
 {
-    // Need a clear snore majority — avoids weak 51/49 flips on pump/ambient noise.
-    return snoringScore >= SNORE_MIN_SCORE && snoringScore > nonSnoringScore;
+    if (!classifierReady) return;
+    run_classifier_init();
+    continuousWarm = false;
+    loudStreak = 0;
+}
+
+/**
+ * Capture one 500ms slice. Quiet → skip ML. Sound → continuous classifier.
+ * Returns verdict: 0 quiet, 1 sound/non-snore, 2 snore.
+ */
+uint8_t classifySlice(float &rms, int &peak, bool &snoreWin, float &snoreScore01, float &nonScore01)
+{
+    snoreWin = false;
+    snoreScore01 = 0.0f;
+    nonScore01 = 1.0f;
+
+    if (!captureSlice(rms, peak)) {
+        return 1;
+    }
+
+    if (rms < SOUND_RMS_MIN) {
+        if (continuousWarm) resetContinuousClassifier();
+        else loudStreak = 0;
+        float snorePct = constrain(rms / 20.0f, 0.0f, 25.0f);
+        snoreScore01 = snorePct / 100.0f;
+        nonScore01 = 1.0f - snoreScore01;
+        return 0;
+    }
+
+    if (!classifierReady) {
+        loudStreak = 0;
+        snoreScore01 = 0.0f;
+        nonScore01 = 1.0f;
+        return 1;
+    }
+
+    peakNormalizeForMl();
+
+    signal_t signal;
+    signal.total_length = EI_SLICE_COUNT;
+    signal.get_data = &get_signal_data;
+    ei_impulse_result_t result = {0};
+
+    EI_IMPULSE_ERROR res = run_classifier_continuous(&signal, &result, false);
+    if (res != EI_IMPULSE_OK) {
+        Serial.print("ERROR: run_classifier_continuous failed: ");
+        Serial.println((int)res);
+        Serial.print("  free heap ");
+        Serial.print(ESP.getFreeHeap());
+        Serial.print("  largest ");
+        Serial.println(ESP.getMaxAllocHeap());
+        resetContinuousClassifier();
+        return 1;
+    }
+
+    continuousWarm = true;
+    getClassScores(result, snoreScore01, nonScore01);
+
+    if (isSnoringWinner(snoreScore01, nonScore01)) {
+        if (loudStreak < 255) loudStreak++;
+        if (loudStreak >= LOUD_STREAK_NEED) {
+            snoreWin = true;
+            return 2;
+        }
+        return 1;
+    }
+
+    loudStreak = 0;
+    return 1;
+}
+
+void serialRule(char edge, char fill)
+{
+    Serial.print(edge);
+    for (int i = 0; i < 42; i++) Serial.print(fill);
+    Serial.println(edge);
+}
+
+void serialBanner(const char *title)
+{
+    Serial.println();
+    serialRule('+', '-');
+    Serial.print("|  ");
+    Serial.print(title);
+    int pad = 38 - (int)strlen(title);
+    for (int i = 0; i < pad; i++) Serial.print(' ');
+    Serial.println("|");
+    serialRule('+', '-');
+}
+
+void serialBar(float score01)
+{
+    int filled = (int)(score01 * (float)SERIAL_BAR_W + 0.5f);
+    if (filled < 0) filled = 0;
+    if (filled > SERIAL_BAR_W) filled = SERIAL_BAR_W;
+    Serial.print('[');
+    for (int i = 0; i < SERIAL_BAR_W; i++) {
+        Serial.print(i < filled ? '#' : '.');
+    }
+    Serial.print(']');
+}
+
+void serialPctLine(const char *label, float score01)
+{
+    Serial.print("|  ");
+    Serial.print(label);
+    int labelPad = 10 - (int)strlen(label);
+    for (int i = 0; i < labelPad; i++) Serial.print(' ');
+    Serial.print(" ");
+    serialBar(score01);
+    Serial.print("  ");
+    Serial.print(score01 * 100.0f, 1);
+    Serial.println("%  |");
+}
+
+void serialKv(const char *key, const char *value)
+{
+    Serial.print("|  ");
+    Serial.print(key);
+    Serial.print(": ");
+    Serial.print(value);
+    int used = 4 + (int)strlen(key) + 2 + (int)strlen(value);
+    int pad = 42 - used;
+    for (int i = 0; i < pad; i++) Serial.print(' ');
+    Serial.println("|");
 }
 
 uint8_t snoreLevelFromScore(float snoringScore, float rms)
@@ -940,248 +1362,434 @@ uint8_t snoreLevelFromScore(float snoringScore, float rms)
     return (uint8_t)level;
 }
 
-void printResult(ei_impulse_result_t &result, float rms, int peak)
+void handleDetectResult(bool snoreWin, float snoreScore01, float nonScore01, float rms, int peak)
 {
-    Serial.println("========== ML RESULT ==========");
-    for (uint16_t i = 0; i < EI_CLASSIFIER_LABEL_COUNT; i++) {
-        Serial.print(ei_classifier_inferencing_categories[i]);
-        Serial.print(": ");
-        Serial.print(result.classification[i].value * 100.0f, 2);
-        Serial.print("%");
-        if (labelIsSnoring(ei_classifier_inferencing_categories[i])) {
-            Serial.print("  <-- snoring class");
-        }
-        Serial.println();
+    serialBanner("HAGOKILLER  ·  LIVE DETECT");
+    serialPctLine("SNORE", snoreScore01);
+    serialPctLine("NON-SNORE", nonScore01);
+    Serial.print("|  verdict   ");
+    if (snoreWin) {
+        Serial.print(">>>  SNORE  <<<");
+        int pad = 42 - 12 - 15;
+        for (int i = 0; i < pad; i++) Serial.print(' ');
+    } else {
+        Serial.print(">>>  NON-SNORE  <<<");
+        int pad = 42 - 12 - 19;
+        for (int i = 0; i < pad; i++) Serial.print(' ');
     }
+    Serial.println("|");
+    Serial.print("|  rms ");
+    Serial.print(rms, 1);
+    Serial.print("   peak ");
+    Serial.print(peak);
+    Serial.print("   ML snore>=60%  streak ");
+    Serial.print(loudStreak);
+    Serial.print("/");
+    Serial.print(LOUD_STREAK_NEED);
+    Serial.println(" |");
+    serialRule('+', '-');
 
-    float snoringScore = getSnoringScore(result);
-    float nonSnoringScore = getNonSnoringScore(result);
-    Serial.print("Snoring: ");
-    Serial.print(snoringScore * 100.0f, 2);
-    Serial.print("%   Non-snoring: ");
-    Serial.print(nonSnoringScore * 100.0f, 2);
-    Serial.print("%   (need snore >= ");
-    Serial.print(SNORE_MIN_SCORE * 100.0f, 0);
-    Serial.println("% and higher than non-snore)");
-    Serial.print("RMS: ");
-    Serial.println(rms, 1);
-    Serial.print("Peak: ");
-    Serial.println(peak);
-    Serial.println("================================");
-
-    if (isSnoringWinner(snoringScore, nonSnoringScore)) {
+    if (snoreWin) {
         ledBlueSnoring();
         unsigned long now = millis();
         uint8_t streak = noteSnoreEvent(now);
 
         if (streak == 0xFF) {
-            Serial.println(">>> SNORING ignored (pump / post-pump mute) <<<");
-            Serial.println(">>> RGB LED = BLUE <<<");
+            Serial.println("|  note: muted (pump / settle)                 |");
+            serialRule('+', '-');
         } else if (streak == 0xFE) {
-            Serial.print(">>> SNORING ignored (min gap ");
+            Serial.print("|  note: min gap ");
             Serial.print(SNORE_MIN_GAP_MS / 1000UL);
-            Serial.println("s — same long snore) <<<");
-            Serial.println(">>> RGB LED = BLUE <<<");
+            Serial.println("s — count skipped              |");
+            serialRule('+', '-');
         } else {
-            uint8_t level = snoreLevelFromScore(snoringScore, rms);
+            uint8_t level = snoreLevelFromScore(snoreScore01, rms);
             uint16_t rmsU16 = (uint16_t)constrain((int)rms, 0, 65535);
-            Serial.print(">>> SNORING DETECTED  streak=");
+            Serial.print("|  streak ");
             Serial.print(streak);
             Serial.print("/");
             Serial.print(snoreThreshold);
             Serial.print(" in ");
             Serial.print(snoreWindowSec);
-            Serial.print("s  elevated=");
-            Serial.print(pillowElevated ? "yes" : "no");
-            Serial.println(" <<<");
-            Serial.println(">>> RGB LED = BLUE <<<");
+            Serial.print("s   pillow ");
+            Serial.print(pillowElevated ? "UP" : "FLAT");
+            Serial.println("              |");
+            serialRule('+', '-');
 
-            if (pillowElevated) {
-                markSnoringWhileElevated(now);
+            if (burstCount >= MAX_BURSTS_PER_INFLATION) {
+                handleSnoreAtPumpLimit(now, level, rmsU16, streak);
+            } else if (streak < snoreThreshold) {
                 notifyPhone(level, rmsU16, streak, false);
-
-                // Still snoring while elevated: short top-up (pump schedules 3s valve after 1 min).
-                bool sent = notifyPumpTopup(level, rmsU16, streak);
-                if (sent) {
-                    Serial.println(">>> ELEVATED TOP-UP 2s <<<");
-                    armActuatorMute(now, (unsigned long)TOPUP_SEC * 1000UL);
-                } else {
-                    notifySnoreActive(level, rmsU16, streak);
-                    Serial.println(">>> ELEVATED snore noted (top-up cooldown/lock) <<<");
-                }
             } else {
-                bool intervene = streak >= snoreThreshold;
-                notifyPhone(level, rmsU16, streak, intervene);
-                if (intervene) {
-                    bool sent = notifyPumpFull(level, rmsU16, streak);
-                    if (sent) {
-                        Serial.print(">>> FULL PUMP ");
-                        Serial.print(pumpSeconds);
-                        Serial.println(" sec -> elevated <<<");
-                        pillowElevated = true;
-                        quietSinceMs = 0;
-                        armPostPumpMute(now);
-                    } else {
-                        Serial.println(">>> PUMP NOT SENT (lock/cooldown) — keep listening <<<");
+                bool newInflation = !pillowElevated;
+                if (newInflation) markPillowFlat();
+                if (startPumpBurst(now, pumpSeconds, newInflation, level, rmsU16, streak)) {
+                    burstCount++;
+                    pillowElevated = true;
+                    notifyPhonePump(level, rmsU16, streak, pumpSeconds);
+                    serialBanner("PUMP BURST");
+                    Serial.print("|  burst ");
+                    Serial.print(burstCount);
+                    Serial.print("/");
+                    Serial.print(MAX_BURSTS_PER_INFLATION);
+                    Serial.print("   duration ");
+                    Serial.print(pumpSeconds);
+                    Serial.println("s                  |");
+                    serialRule('+', '-');
+                } else {
+                    // Cooldown blocked the pump — drop this count so the window can retry cleanly.
+                    if (snoreTimeCount > 0) {
+                        snoreTimeCount--;
+                        snoreStreak = snoreTimeCount;
                     }
+                    notifyPhone(level, rmsU16, snoreStreak, false);
+                    Serial.println("|  pump blocked (cooldown) — snore dropped    |");
+                    serialRule('+', '-');
                 }
             }
         }
     } else {
         // Keep rolling window; only time expiry removes older snores.
-        unsigned long now = millis();
-        refreshSnoreWindow(now);
-        updateElevatedQuietWatch(now, false);
+        refreshSnoreWindow(millis());
         ledRedNonSnoring();
-        Serial.print(">>> NON-SNORING  window streak=");
+        Serial.print("|  window streak stays ");
         Serial.print(snoreStreak);
-        Serial.print(pillowElevated ? "  elevated=yes" : "  elevated=no");
-        Serial.println(" <<<");
-        Serial.println(">>> RGB LED = RED <<<");
+        Serial.println("                         |");
+        serialRule('+', '-');
     }
     Serial.println();
 }
 
-void printBleStatus()
+/** Settings mic test: EI slice preview (no pump / overnight count). */
+void runMicTestFrame()
 {
-    unsigned long now = millis();
-    if (now - lastBleStatusMs < 2000) return;
-    lastBleStatusMs = now;
+    float rms = 0.0f;
+    int peak = 0;
+    bool snoreWin = false;
+    float snoreScore01 = 0.0f;
+    float nonScore01 = 0.0f;
+    uint8_t verdict = classifySlice(rms, peak, snoreWin, snoreScore01, nonScore01);
 
-    if (!phoneConnected) {
-        Serial.println("BLE: waiting for app...");
-    } else if (!phoneAuthenticated) {
-        Serial.println("BLE: app connected - enter PIN in app");
+    uint8_t snorePct = (uint8_t)constrain((int)lroundf(snoreScore01 * 100.0f), 0, 100);
+    uint8_t nonPct = (uint8_t)constrain((int)lroundf(nonScore01 * 100.0f), 0, 100);
+
+    if (verdict == 0) {
+        ledWhiteNoSound();
+    } else if (verdict == 2) {
+        ledBlueSnoring();
     } else {
-        Serial.println("BLE: app paired");
+        ledRedNonSnoring();
     }
-    Serial.flush();
+
+    notifyPhoneMicTest(snorePct, nonPct, verdict);
+
+    serialBanner("MIC TEST  ·  EI MFCC");
+    serialPctLine("SNORE", snoreScore01);
+    serialPctLine("NON-SNORE", nonScore01);
+    Serial.print("|  rms ");
+    Serial.print(rms, 1);
+    Serial.print("  peak ");
+    Serial.print(peak);
+    Serial.print("  loudStreak ");
+    Serial.print(loudStreak);
+    Serial.println("        |");
+    Serial.print("|  verdict   ");
+    if (verdict == 0) Serial.print(">>>  QUIET  <<<");
+    else if (verdict == 2) Serial.print(">>>  SNORE  <<<");
+    else Serial.print(">>>  NON-SNORE  <<<");
+    Serial.println("              |");
+    serialRule('+', '-');
+    Serial.println();
 }
 
 bool startIot()
 {
-    if (i2sReady) return true;
-    Serial.println("Starting IoT (mic + ML)...");
-    if (!setupI2S()) {
-        Serial.println("I2S initialization FAILED");
-        setRgb(80, 0, 80);
-        return false;
+    Serial.println("Starting IoT (mic + MFCC-only Hagokiller)...");
+    if (!i2sReady) {
+        if (!setupI2SAutoChannel()) {
+            Serial.println("I2S initialization FAILED");
+            setRgb(80, 0, 80);
+            return false;
+        }
+        Serial.println("I2S OK.");
+    } else {
+        Serial.println("I2S already up — fixed sound gate (no calibration).");
     }
-    i2sReady = true;
-    calibrateNoiseFloor();
+
+    Serial.print("Fixed gate RMS>=");
+    Serial.println((int)SOUND_RMS_MIN);
+    Serial.print("Free heap before classifier: ");
+    Serial.print(ESP.getFreeHeap());
+    Serial.print("  largest ");
+    Serial.println(ESP.getMaxAllocHeap());
+
+    run_classifier_init();
+    classifierReady = true;
+    continuousWarm = false;
+    loudStreak = 0;
+    clearActuatorMute();
+
     ledWhiteNoSound();
     printDeviceSettings();
-    Serial.println("I2S OK. Make noise near the mic.");
-    Serial.println("WHITE = no sound (ML off)");
-    Serial.println("RED   = sound, not snoring");
-    Serial.println("BLUE  = snoring");
+    Serial.print("Free heap after classifier: ");
+    Serial.print(ESP.getFreeHeap());
+    Serial.print("  largest ");
+    Serial.println(ESP.getMaxAllocHeap());
+    serialBanner("IoT READY  ·  MFCC-only Hagokiller");
+    Serial.print("|  slice ");
+    Serial.print((EI_SLICE_COUNT * 1000) / SAMPLE_RATE);
+    Serial.println("ms continuous  (STATIC + KissFFT)       |");
+    Serial.print("|  features ");
+    Serial.print(EI_CLASSIFIER_NN_INPUT_FRAME_SIZE);
+    Serial.print("  deploy v");
+    Serial.print(EI_CLASSIFIER_PROJECT_DEPLOY_VERSION);
+    Serial.println("                   |");
+    Serial.print("|  quiet <");
+    Serial.print((int)SOUND_RMS_MIN);
+    Serial.print("  snore>=");
+    Serial.print((int)(SNORE_MIN_SCORE * 100.0f));
+    Serial.print("%  non>=");
+    Serial.print((int)(NON_SNORE_MIN_SCORE * 100.0f));
+    Serial.println("%         |");
+    Serial.println("|  WHITE  quiet                                |");
+    Serial.println("|  RED    sound → non-snore                    |");
+    Serial.println("|  BLUE   sound → snore                        |");
+    Serial.println("|  AMBER  idle / waiting for app               |");
+    Serial.println("|  Partition: Huge APP (3MB) for ML            |");
+    serialRule('+', '-');
+    Serial.println();
     Serial.flush();
     return true;
 }
 
+/** Print status only when BLE / IoT / detect / mic-test state changes (no 2s spam). */
+void serialAliveTick()
+{
+    uint8_t bleState = !phoneConnected ? 0 : (!phoneAuthenticated ? 1 : 2);
+    static uint8_t lastBle = 0xFF;
+    static bool lastIot = false;
+    static bool lastDetect = false;
+    static bool lastMicTest = false;
+
+    if (bleState == lastBle &&
+        iotStarted == lastIot &&
+        snoreDetectionEnabled == lastDetect &&
+        micTestActive == lastMicTest) {
+        return;
+    }
+
+    lastBle = bleState;
+    lastIot = iotStarted;
+    lastDetect = snoreDetectionEnabled;
+    lastMicTest = micTestActive;
+
+    Serial.print("[status] ble=");
+    if (bleState == 0) Serial.print("wait");
+    else if (bleState == 1) Serial.print("need-PIN");
+    else Serial.print("paired");
+    Serial.print("  iot=");
+    Serial.print(iotStarted ? "on" : "off");
+    Serial.print("  detect=");
+    Serial.print(snoreDetectionEnabled ? "on" : "paused");
+    Serial.print("  micTest=");
+    Serial.println(micTestActive ? "on" : "off");
+    Serial.flush();
+}
+
 void setup()
 {
+    // ESP32-S3: Tools must be:
+    //   USB CDC On Boot = Enabled
+    //   USB Mode        = Hardware CDC and JTAG
+    //   Upload Mode     = UART0 / Hardware CDC
+    // Serial Monitor: 115200 baud. Open monitor, then press RESET.
     Serial.begin(115200);
-    delay(2000);
-    setRgb(0, 0, 40);
+#if defined(ARDUINO_USB_CDC_ON_BOOT) && (ARDUINO_USB_CDC_ON_BOOT == 1)
+    Serial.setTxTimeoutMs(0);
+#endif
+    // Wait briefly for the USB host / Serial Monitor to attach.
+    unsigned long serialWaitStart = millis();
+    while (!Serial && (millis() - serialWaitStart) < 4000UL) {
+        delay(10);
+    }
+    delay(300);
 
-    Serial.println();
-    Serial.println("======================================");
-    Serial.println(" HAGOKILLER");
-    Serial.println("======================================");
-    Serial.print("MIC_SHIFT: ");
-    Serial.println(micShift);
+    // Loud boot spam so late-opened Serial Monitor still catches something.
+    for (int i = 0; i < 12; i++) {
+        Serial.println();
+        Serial.print("*** HAGOKILLER SERIAL LIVE ");
+        Serial.print(i + 1);
+        Serial.println("/12 ***");
+        Serial.flush();
+        delay(200);
+    }
+
+    ledIdleWaiting();
+
+    serialBanner("HAGOKILLER  PILLOW  MIC");
+    serialKv("mode", "LIGHT Hagokiller MFCC-only snore>=60%");
+    serialKv("baud", "115200");
+    Serial.print("|  micShift: ");
+    Serial.print(micShift);
+    Serial.println("                             |");
+    Serial.print("|  slice ");
+    Serial.print(EI_SLICE_COUNT);
+    Serial.print(" @ ");
+    Serial.print(SAMPLE_RATE);
+    Serial.print("  snore>=");
+    Serial.print((int)(SNORE_MIN_SCORE * 100.0f));
+    Serial.println("%         |");
+    Serial.println("|  Partition: Huge APP (3MB) for ML           |");
+    Serial.println("|  If blank: USB CDC On Boot = Enabled        |");
+    Serial.println("|  USB Mode=Hardware CDC  Upload=UART0/CDC   |");
+    Serial.println("|  Then Upload, open Serial, press RESET      |");
+    serialRule('+', '-');
+    printDetectorBanner();
     printDeviceSettings();
-    Serial.println("Connect the phone app first.");
-    Serial.println("LED flashes 2 times = Bluetooth connected, then IoT starts.");
-    Serial.println();
+    Serial.println("|  1) Open phone app + pair PIN 1234567        |");
+    Serial.println("|  2) LED flash x2 = Bluetooth linked         |");
+    Serial.println("|  3) Tap Start detection for live ML cards   |");
+    Serial.println("|  LED  WHITE quiet · RED other · BLUE snore  |");
+    serialRule('+', '-');
+    Serial.println(">>> Serial OK — status on state change... <<<");
+    Serial.flush();
 
     setupEspNow();
     setupPhoneBle();
+    Serial.println(">>> setup() done — entering loop() <<<");
+    Serial.flush();
 }
 
 void loop()
 {
+    serialAliveTick();
+
+    if (pendingAdvertise) {
+        pendingAdvertise = false;
+        delay(200);
+        if (bleServer) {
+            bleServer->startAdvertising();
+        } else {
+            BLEDevice::startAdvertising();
+        }
+        Serial.println("BLE: waiting for app...");
+        Serial.flush();
+    }
+
     if (pendingConnectFlash) {
         pendingConnectFlash = false;
-        Serial.println("BLE connected - flashing LED 2 times");
+        Serial.println("BLE connected - flashing LED 2 times (enter PIN to start mic)");
         Serial.flush();
         flashBluetoothConnected();
+        ledIdleWaiting();
+    }
+
+    if (pendingStartIot && phoneAuthenticated && phoneConnected) {
+        pendingStartIot = false;
+        // New paired session: allow the hold alert again (pillow height is kept).
+        maxHoldAlerted = false;
+        capSnoreStartMs = 0;
+        // Do NOT reinit WiFi/ESP-NOW here — that drops the BLE link.
         setupEspNow();
-        if (startIot()) {
+        if (startIot() && phoneConnected && phoneAuthenticated) {
             iotStarted = true;
-            Serial.println("IoT started");
+            Serial.println("IoT started after PIN pair (fixed threshold, no calibration)");
+            Serial.flush();
+        } else {
+            iotStarted = false;
+            Serial.println("IoT start aborted — BLE not stable");
             Serial.flush();
         }
     }
 
-    printBleStatus();
-    if (iotStarted && phoneConnected) {
+    updatePumpSession(millis());
+
+    if (iotStarted && phoneConnected && phoneAuthenticated) {
         sendMicHeartbeat();
     }
 
-    if (pendingRecalibrate && iotStarted && i2sReady) {
-        pendingRecalibrate = false;
-        calibrateNoiseFloor();
-        ledWhiteNoSound();
-    }
-
-    if (!iotStarted || !i2sReady || !phoneConnected) {
-        delay(50);
-        return;
-    }
-
-    if (!captureAudio()) {
-        Serial.println("Audio capture failed");
-        setRgb(80, 0, 80);
-        delay(1000);
-        return;
-    }
-
-    float rms = computeRms(audio_buffer, EI_SAMPLE_COUNT);
-    int peak = computePeak(audio_buffer, EI_SAMPLE_COUNT);
-    bool soundPresent = isHearingSound(rms, peak);
-
-    Serial.print("RMS=");
-    Serial.print(rms, 1);
-    Serial.print(" Peak=");
-    Serial.print(peak);
-    Serial.print(" -> ");
-    Serial.println(soundPresent ? "SOUND (run ML)" : "NO SOUND");
-
-    if (!soundPresent) {
+    if (!iotStarted || !i2sReady || !phoneConnected || !phoneAuthenticated) {
+        micTestActive = false;
         loudStreak = 0;
-        unsigned long now = millis();
-        refreshSnoreWindow(now);
-        updateElevatedQuietWatch(now, false);
+        delay(50);
+        return;
+    }
+
+    // Phone risk alarm is playing — do not run detector on that ringtone.
+    // Keep micTestActive; only CMD_MIC_TEST_STOP (Stop button) clears it.
+    if (phoneAlarmMute) {
+        loudStreak = 0;
+        ledPhoneAlarmMute();
+        delay(50);
+        return;
+    }
+
+    // App paused overnight listening — allow Settings mic test only.
+    if (!snoreDetectionEnabled) {
+        if (micTestActive) {
+            runMicTestFrame();
+            return;
+        }
+        loudStreak = 0;
+        ledDetectionStopped();
+        delay(50);
+        return;
+    }
+
+    // Overnight listening active — never keep mic test running.
+    if (micTestActive) {
+        micTestActive = false;
+        loudStreak = 0;
+    }
+
+    // Magenta ONLY while the pump motor session is active.
+    // Post-pump / valve / test settle still ignores snore counts (snoreListenMuted)
+    // but LED goes back to white/red/blue so it does not look "stuck blinking magenta".
+    if (pumpSessionActive) {
+        loudStreak = 0;
+        ledPumpMute();
+        delay(50);
+        return;
+    }
+
+    float rms = 0.0f;
+    int peak = 0;
+    bool snoreWin = false;
+    float snoreScore01 = 0.0f;
+    float nonScore01 = 0.0f;
+    uint8_t verdict = classifySlice(rms, peak, snoreWin, snoreScore01, nonScore01);
+
+    if (verdict == 0) {
+        refreshSnoreWindow(millis());
         ledWhiteNoSound();
-        delay(50);
+        static unsigned long lastQuietScoreMs = 0;
+        unsigned long nowQ = millis();
+        if (nowQ - lastQuietScoreMs >= 2000UL) {
+            lastQuietScoreMs = nowQ;
+            Serial.print("[quiet] rms=");
+            Serial.print(rms, 1);
+            Serial.print(" peak=");
+            Serial.print(peak);
+            Serial.print(" raw=");
+            Serial.print(lastRawPeak);
+            Serial.print(" shift=");
+            Serial.print(micShift);
+            Serial.print(" ch=");
+            Serial.print(i2sChannelFmt == I2S_CHANNEL_FMT_ONLY_RIGHT ? "R" : "L");
+            Serial.print(" heap=");
+            Serial.println(ESP.getFreeHeap());
+            if (lastRawPeak < RAW_MIC_ALIVE_MIN) {
+                Serial.println("[quiet] mic raw=0 — wiring or L/R channel; lower micShift for more gain");
+            }
+        }
         return;
     }
 
-    loudStreak++;
-    if (loudStreak < LOUD_STREAK_NEED) {
-        Serial.println("SOUND too brief / far - wait");
-        delay(50);
+    if (snoreWin) {
+        handleDetectResult(true, snoreScore01, nonScore01, rms, peak);
         return;
     }
 
-    signal_t signal;
-    signal.total_length = EI_SAMPLE_COUNT;
-    signal.get_data = &get_signal_data;
-
-    ei_impulse_result_t result = { 0 };
-    EI_IMPULSE_ERROR res = run_classifier(&signal, &result, false);
-
-    if (res != EI_IMPULSE_OK) {
-        Serial.print("ERROR: run_classifier failed: ");
-        Serial.println(res);
-        setRgb(80, 0, 80);
-        delay(1000);
-        return;
-    }
-
-    printResult(result, rms, peak);
-    delay(80);
+    handleDetectResult(false, snoreScore01, nonScore01, rms, peak);
 }
  

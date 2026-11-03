@@ -1,7 +1,7 @@
 import { SleepEvent, DashboardData, DailyStats, BLEDevice } from '../types';
 import moment from 'moment';
 import { calculateDailyStats, calculateMonthlyStats, calculateTrend } from '../utils/statsCalculator';
-import { isValidPairingPin } from '../utils/pinValidation';
+import { isCorrectPairingPin, isValidPairingPin } from '../utils/pinValidation';
 import {
   loadPairedDevice,
   savePairedDevice,
@@ -375,15 +375,14 @@ export class MockBLEService {
     if (!isValidPairingPin(pin)) {
       throw new Error('Enter the 7-digit PIN from your pillow label.');
     }
+    if (!isCorrectPairingPin(pin)) {
+      throw new Error('Incorrect PIN. Check the sticker under the pillow.');
+    }
 
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       setTimeout(() => {
-        if (pin !== '1234567' && pin !== '0000000') {
-          reject(new Error('Incorrect PIN. Check the sticker under the pillow.'));
-          return;
-        }
-
         this.connected = true;
+        this.detectionEnabled = false;
         this.pairedDevice = { ...device, isConnected: true };
         savePairedDevice({
           id: device.id,
@@ -410,6 +409,7 @@ export class MockBLEService {
           return;
         }
         this.connected = true;
+        this.detectionEnabled = false;
         this.pairedDevice = { ...this.pairedDevice, isConnected: true };
         this.startLiveMonitoring();
         this.notify();
@@ -422,6 +422,7 @@ export class MockBLEService {
     return new Promise((resolve) => {
       setTimeout(() => {
         this.stopLiveMonitoring();
+        this.stopMicTestSimulation();
         this.connected = false;
         if (this.pairedDevice) {
           this.pairedDevice = { ...this.pairedDevice, isConnected: false };
@@ -490,8 +491,63 @@ export class MockBLEService {
    * Prototype safety commands (mock: resets local streak / logs only).
    * Real firmware must implement the matching BLE command packet.
    */
+  private detectionEnabled = false;
+  private micTestTimer: ReturnType<typeof setInterval> | null = null;
+  private micTestListeners = new Set<(preview: import('./esp32Protocol').MicTestPreview) => void>();
+
+  isSnoreDetectionEnabled(): boolean {
+    return this.detectionEnabled;
+  }
+
+  subscribeMicTest(listener: (preview: import('./esp32Protocol').MicTestPreview) => void): () => void {
+    this.micTestListeners.add(listener);
+    return () => {
+      this.micTestListeners.delete(listener);
+    };
+  }
+
+  private stopMicTestSimulation() {
+    if (this.micTestTimer) {
+      clearInterval(this.micTestTimer);
+      this.micTestTimer = null;
+    }
+  }
+
+  private startMicTestSimulation() {
+    this.stopMicTestSimulation();
+    let tick = 0;
+    this.micTestTimer = setInterval(() => {
+      tick += 1;
+      const phase = tick % 6;
+      let preview: import('./esp32Protocol').MicTestPreview;
+      if (phase === 0 || phase === 1) {
+        preview = { snorePercent: 0, nonSnorePercent: 0, verdict: 'quiet', timestamp: Date.now() };
+      } else if (phase === 2 || phase === 3) {
+        preview = { snorePercent: 28, nonSnorePercent: 64, verdict: 'non_snore', timestamp: Date.now() };
+      } else {
+        preview = { snorePercent: 72, nonSnorePercent: 22, verdict: 'snore', timestamp: Date.now() };
+      }
+      this.micTestListeners.forEach((listener) => {
+        try {
+          listener(preview);
+        } catch {
+          // ignore
+        }
+      });
+    }, 700);
+  }
+
   async sendDeviceCommand(
-    command: 'emergency_stop' | 'open_valve',
+    command:
+      | 'emergency_stop'
+      | 'open_valve'
+      | 'test_pump'
+      | 'mute_mic'
+      | 'unmute_mic'
+      | 'stop_detection'
+      | 'start_detection'
+      | 'mic_test_start'
+      | 'mic_test_stop',
     _argSeconds = 0,
   ): Promise<void> {
     if (!this.connected) {
@@ -499,9 +555,26 @@ export class MockBLEService {
     }
     this.snoreStreak = 0;
     this.snoreEventTimes = [];
+    if (command === 'stop_detection') {
+      this.detectionEnabled = false;
+    }
+    if (command === 'start_detection') {
+      this.detectionEnabled = true;
+      this.stopMicTestSimulation();
+    }
+    if (command === 'mic_test_start') {
+      if (this.detectionEnabled) {
+        throw new Error('Pause overnight detection before testing the mic.');
+      }
+      this.startMicTestSimulation();
+    }
+    if (command === 'mic_test_stop') {
+      this.stopMicTestSimulation();
+    }
     if (__DEV__) {
       console.log(`[mock BLE] command ${command}`);
     }
+    this.notify();
   }
 
   getIsConnected(): boolean {

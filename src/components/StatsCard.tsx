@@ -14,129 +14,92 @@ interface StatsCardProps {
 }
 
 export const StatsCard: React.FC<StatsCardProps> = ({
-  label, value, icon = 'chart-bar', severity, unit = '', style,
+  label,
+  value,
+  icon = 'chart-bar',
+  severity,
+  unit = '',
+  style,
 }) => {
-  const isSeverity = !!severity;
-  const severityColor = severity ? getSeverityColor(severity) : '#0ea5e9';
-  const displayLabel = severity ? getSeverityLabel(severity) : '';
+  const accent = severity ? getSeverityColor(severity) : colors.accent;
+  const severityLabel = severity ? getSeverityLabel(severity) : '';
 
   return (
-    <View style={[
-      styles.card,
-      isSeverity && {
-        borderColor: severityColor + '40',
-        borderWidth: 1.5,
-      },
-      style,
-    ]}>
-      {/* Dynamic top-left color bar for visual cue */}
-      <View style={[styles.glowBar, { backgroundColor: severityColor }]} />
-
-      <View style={styles.content}>
-        <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
-          {value}
-          {unit ? <Text style={styles.unit}>{unit}</Text> : null}
-        </Text>
-        
-        {isSeverity && (
-          <View style={[styles.severityBadge, { backgroundColor: severityColor + '20' }]}>
-            <Text style={[styles.severityText, { color: severityColor }]}>
-              {displayLabel}
-            </Text>
-          </View>
-        )}
+    <View style={[styles.card, { borderColor: accent + '33' }, style]}>
+      <View style={[styles.iconWrap, { backgroundColor: accent + '18' }]}>
+        <FontAwesome5 name={icon} size={14} color={accent} />
       </View>
 
-      <View style={styles.header}>
-        <Text style={styles.label} numberOfLines={2}>
-          {label}
-        </Text>
-        <View style={[
-          styles.iconContainer,
-          { backgroundColor: severityColor + '1a' }
-        ]}>
-          <FontAwesome5 name={icon} size={15} color={severityColor} />
+      <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
+        {value}
+        {unit ? <Text style={styles.unit}>{unit}</Text> : null}
+      </Text>
+
+      <Text style={styles.label} numberOfLines={2}>
+        {label}
+      </Text>
+
+      {severity ? (
+        <View style={[styles.badge, { backgroundColor: accent + '22' }]}>
+          <Text style={[styles.badgeText, { color: accent }]}>{severityLabel}</Text>
         </View>
-      </View>
+      ) : null}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   card: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
+    flex: 1,
+    minWidth: '46%',
     backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: 13,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
-    position: 'relative',
-    overflow: 'hidden',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 6,
     elevation: 1,
   },
-  glowBar: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 3,
-    opacity: 0.9,
-  },
-  header: {
-    flex: 1,
-    flexDirection: 'row',
+  iconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 8,
-  },
-  iconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
     justifyContent: 'center',
-    alignItems: 'center',
-  },
-  label: {
-    fontSize: 12,
-    lineHeight: 17,
-    color: colors.textMuted,
-    fontWeight: '600',
-    textAlign: 'right',
-  },
-  content: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    gap: 8,
+    marginBottom: 12,
   },
   value: {
-    fontSize: 23,
+    fontSize: 26,
     fontWeight: '800',
     color: colors.text,
-    letterSpacing: -0.5,
+    letterSpacing: -0.6,
+    marginBottom: 4,
   },
   unit: {
     fontSize: 13,
     color: colors.textMuted,
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  severityBadge: {
+  label: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.textMuted,
+    fontWeight: '600',
+  },
+  badge: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
-    alignSelf: 'center',
   },
-  severityText: {
-    fontSize: 10,
-    fontWeight: '700',
-    textTransform: 'uppercase',
+  badgeText: {
+    fontSize: 9,
+    fontWeight: '800',
     letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
 });

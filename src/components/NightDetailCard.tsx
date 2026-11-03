@@ -33,10 +33,8 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
   const { width } = useWindowDimensions();
   const severityColor = getSeverityColor(night.severity);
 
-  const visibleHours = useMemo(
-    () => night.hourly.filter((h) => h.hour >= 21 || h.hour <= 8),
-    [night.hourly],
-  );
+  // Full sleep-night axis (18:00 → 11:00). Hiding early evening made live data look missing.
+  const visibleHours = useMemo(() => night.hourly, [night.hourly]);
 
   const chartWidth = Math.min(width - 28, 560);
   const eventTimeline = useMemo(
@@ -65,7 +63,9 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
     : null;
 
   const chartData = useMemo(() => {
-    const labels = visibleHours.map((h) => moment().hour(h.hour).minute(0).format('ha'));
+    const labels = visibleHours.map((h, index) => (
+      index % 2 === 0 ? moment().hour(h.hour).minute(0).format('ha') : ''
+    ));
     const counts = visibleHours.map((h) => h.count);
     // chart-kit crashes on empty/all-zero in some cases — keep a floor dataset shape
     const data = counts.every((c) => c === 0) ? counts.map(() => 0) : counts;

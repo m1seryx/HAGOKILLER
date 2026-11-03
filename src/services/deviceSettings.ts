@@ -3,9 +3,9 @@ export interface DeviceSettings {
   snoreThreshold: number;
   /** Rolling window in seconds for counting snore events (5–60). */
   snoreWindowSec: number;
-  /** Pump run time in seconds (5–120). */
+  /** Maximum seconds the pump runs for one inflation (5–120). */
   pumpDuration: number;
-  /** I2S right-shift. Higher = less sensitive (12–16). */
+  /** I2S right-shift. Lower = longer range / more sensitive (10–16). */
   micShift: number;
 }
 
@@ -17,11 +17,14 @@ export const SNORE_WINDOW_MIN_SEC = 5;
 export const SNORE_WINDOW_MAX_SEC = 60;
 export const SNORE_WINDOW_STEP_SEC = 5;
 
+export const MIC_SHIFT_MIN = 8;
+export const MIC_SHIFT_MAX = 16;
+
 export const DEFAULT_DEVICE_SETTINGS: DeviceSettings = {
   snoreThreshold: 3,
   snoreWindowSec: 15,
-  pumpDuration: 12,
-  micShift: 15,
+  pumpDuration: 40,
+  micShift: 11,
 };
 
 function snapPumpSeconds(raw: number): number {
@@ -66,7 +69,10 @@ export function normalizeDeviceSettings(
     snoreThreshold: Math.min(10, Math.max(1, Number.isFinite(snore) ? snore : 3)),
     snoreWindowSec: window,
     pumpDuration: pump,
-    micShift: Math.min(16, Math.max(12, Number.isFinite(shift) ? shift : 14)),
+    micShift: Math.min(
+      MIC_SHIFT_MAX,
+      Math.max(MIC_SHIFT_MIN, Number.isFinite(shift) ? shift : DEFAULT_DEVICE_SETTINGS.micShift),
+    ),
   };
 }
 
@@ -98,10 +104,10 @@ export function validateDeviceSettings(settings: DeviceSettings): DeviceSettings
   }
   if (
     !Number.isFinite(settings.micShift) ||
-    settings.micShift < 12 ||
-    settings.micShift > 16
+    settings.micShift < MIC_SHIFT_MIN ||
+    settings.micShift > MIC_SHIFT_MAX
   ) {
-    throw new Error('Mic shift must be between 12 and 16');
+    throw new Error(`Mic shift must be between ${MIC_SHIFT_MIN} and ${MIC_SHIFT_MAX}`);
   }
   return normalizeDeviceSettings(settings);
 }

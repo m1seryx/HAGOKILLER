@@ -16,6 +16,8 @@ import { AssessmentScreen } from './src/screens/AssessmentScreen';
 import { WellnessPlanHistoryScreen } from './src/screens/WellnessPlanHistoryScreen';
 import { NightDetailScreen } from './src/screens/NightDetailScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { FaqScreen } from './src/screens/FaqScreen';
+import { AboutScreen } from './src/screens/AboutScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { DownloadScreen } from './src/screens/DownloadScreen';
 import { UserContext } from './src/context/UserContext';
@@ -28,6 +30,11 @@ import {
   notifySnoreDetected,
 } from './src/services/snoreNotifications';
 import { scheduleDailyAdviceNotifications } from './src/services/dailyAdviceNotifications';
+import {
+  ensureRiskAlarmCategory,
+  ensureRiskAlarmResponseListener,
+  playRiskAlarmSound,
+} from './src/services/riskAlarmSound';
 import { colors } from './src/constants/theme';
 import {
   initDatabase,
@@ -43,7 +50,7 @@ if (Platform.OS === 'web') {
   enableScreens(false);
 }
 
-try { SplashScreen.preventAutoHideAsync(); } catch (_) {}
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -237,8 +244,19 @@ const SnoreAlertHost = () => {
     };
 
     boot().catch(() => undefined);
+    void ensureRiskAlarmCategory().catch(() => undefined);
+    const unsubAlarm = ensureRiskAlarmResponseListener();
 
+    return () => {
+      unsubAlarm();
+    };
+  }, []);
+
+  useEffect(() => {
     return bleService.subscribeEvents((event) => {
+      if (event.maxElevationHold) {
+        playRiskAlarmSound().catch(() => undefined);
+      }
       notifySnoreDetected(event).catch(() => undefined);
     });
   }, []);
@@ -255,12 +273,31 @@ class AppErrorBoundary extends React.Component<
     return { error };
   }
 
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('HAGOKILLER screen error', error, info.componentStack);
+  }
+
+  private retry = () => {
+    this.setState({ error: null });
+  };
+
   render() {
     if (this.state.error) {
       return (
         <View style={styles.crash}>
-          <Text style={styles.crashTitle}>App failed to load</Text>
-          <Text style={styles.crashBody}>{this.state.error.message}</Text>
+          <View style={styles.crashIcon}>
+            <FontAwesome5 name="moon" size={22} color={colors.onAccent} solid />
+          </View>
+          <Text style={styles.crashEyebrow}>HAGOKILLER RECOVERY</Text>
+          <Text style={styles.crashTitle}>The screen needs a quick refresh</Text>
+          <Text style={styles.crashBody}>
+            Your saved sleep data is safe. Try reopening the screen without closing the app.
+          </Text>
+          <TouchableOpacity accessibilityRole="button" style={styles.crashButton} onPress={this.retry}>
+            <FontAwesome5 name="redo-alt" size={13} color={colors.onAccent} />
+            <Text style={styles.crashButtonText}>Reload app screen</Text>
+          </TouchableOpacity>
+          {__DEV__ ? <Text style={styles.crashDebug}>{this.state.error.message}</Text> : null}
         </View>
       );
     }
@@ -273,7 +310,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
-    try { SplashScreen.hideAsync(); } catch (_) {}
+    void SplashScreen.hideAsync().catch(() => undefined);
   }, []);
 
   const userValue = useMemo(
@@ -336,9 +373,11 @@ export default function App() {
 
   if (isDownloadRoute) {
     return (
-      <SafeAreaProvider>
-        <DownloadScreen />
-      </SafeAreaProvider>
+      <AppErrorBoundary>
+        <SafeAreaProvider>
+          <DownloadScreen />
+        </SafeAreaProvider>
+      </AppErrorBoundary>
     );
   }
 
@@ -375,6 +414,16 @@ export default function App() {
                 component={ProfileScreen}
                 options={{ animation: 'slide_from_right' }}
               />
+              <Stack.Screen
+                name="Faq"
+                component={FaqScreen}
+                options={{ animation: 'slide_from_right', headerShown: false }}
+              />
+              <Stack.Screen
+                name="About"
+                component={AboutScreen}
+                options={{ animation: 'slide_from_right', headerShown: false }}
+              />
 
               <Stack.Screen
                 name="WellnessPlanHistory"
@@ -410,9 +459,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     justifyContent: 'center',
     padding: 24,
+    alignItems: 'center',
   },
-  crashTitle: { color: colors.text, fontSize: 20, fontWeight: '800', marginBottom: 8 },
-  crashBody: { color: '#fca5a5', fontSize: 14, lineHeight: 20 },
+  crashIcon: {
+    width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.accent, marginBottom: 16,
+  },
+  crashEyebrow: { color: colors.accent, fontSize: 9, fontWeight: '900', letterSpacing: 1.4, marginBottom: 7 },
+  crashTitle: { color: colors.text, fontSize: 22, fontWeight: '900', marginBottom: 8, textAlign: 'center' },
+  crashBody: { color: colors.textMuted, fontSize: 14, lineHeight: 21, textAlign: 'center', maxWidth: 420 },
+  crashButton: {
+    minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 18, borderRadius: 14, backgroundColor: colors.accent, marginTop: 20,
+  },
+  crashButtonText: { color: colors.onAccent, fontSize: 13, fontWeight: '800', marginLeft: 8 },
+  crashDebug: { color: '#fca5a5', fontSize: 10, lineHeight: 15, marginTop: 16, textAlign: 'center' },
   tabIconWell: {
     width: 44,
     height: 32,

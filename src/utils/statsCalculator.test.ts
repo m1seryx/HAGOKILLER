@@ -1,5 +1,5 @@
 import moment from 'moment';
-import { calculateInterventionEffectiveness, getNightKey, calculateNightDetail } from './statsCalculator';
+import { calculateInterventionEffectiveness, getNightKey, getCurrentNightKey, calculateNightDetail, listRecentNightKeys } from './statsCalculator';
 
 describe('calculateInterventionEffectiveness', () => {
   test('evaluates sleep metrics and returns correct trend status', () => {
@@ -72,5 +72,12 @@ describe('night peak detail', () => {
     expect(night.peakWindowLabel).toContain('2:00');
     expect(night.interventionCount).toBe(1);
     expect(night.topPeakHours[0]).toBe(2);
+  });
+
+  test('lists the in-progress sleep night first so evening events are visible', () => {
+    const current = getCurrentNightKey();
+    const keys = listRecentNightKeys([], 7);
+    expect(keys[0]).toBe(current);
+    expect(keys).toHaveLength(7);
   });
 });

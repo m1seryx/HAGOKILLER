@@ -53,7 +53,9 @@
         {
           "icon": "./assets/app-icon-hagosaur.png",
           "color": "#0ea5e9",
-          "sounds": []
+          "sounds": [
+            "./assets/sounds/risk_alarm.wav"
+          ]
         }
       ],
       [
@@ -91,9 +93,10 @@
         }
       ]
     ],
+    "owner": "givemeakisssonder",
     "extra": {
       "eas": {
-        "projectId": "a50aa0de-3db4-4ba1-9a0f-138e8229858c"
+        "projectId": "b8d326de-d45b-41e6-9a16-9981e6d5177a"
       }
     }
   }

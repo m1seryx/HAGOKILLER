@@ -1,5 +1,6 @@
 export type {
   SleepEvent,
+  CalibrationLogEntry,
   DailyStats,
   MonthlyStats,
   NightDetail,

@@ -19,6 +19,20 @@ export interface SleepEvent {
   rawPayload?: string | null;
   /** Consecutive snore count from firmware at detection time */
   snoreStreak?: number;
+  /** Still snoring after the nightly inflation-cycle limit (pillow holding position). */
+  maxElevationHold?: boolean;
+}
+
+/** Mic noise-floor calibration, kept apart from SleepEvent so it never counts as snoring. */
+export interface CalibrationLogEntry {
+  id: string;
+  timestamp: number;
+  /** Quiet-room RMS the mic measured (snore detection threshold is based on this). */
+  noiseFloorRms: number;
+  /** Mic sensitivity setting (MIC_SHIFT) at calibration time. */
+  micShift: number;
+  /** false = app reconnected and the mic reused its earlier calibration. */
+  fresh: boolean;
 }
 
 export interface DailyStats {

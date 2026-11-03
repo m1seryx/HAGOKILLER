@@ -19,11 +19,13 @@ import {
   calculateDailySeverity,
 } from '../utils/statsCalculator';
 import { getSeverityColor, getSeverityLabel, getMoodStatus } from '../utils/recommendations';
-import { StatsCard } from '../components/StatsCard';
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
+import { KeySleepMetricsChart } from '../components/KeySleepMetricsChart';
+import { LiveSnoreMonitor } from '../components/LiveSnoreMonitor';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
+import { SnoreDetectionControls } from '../components/SnoreDetectionControls';
 import { calculateDashboardData } from '../services/mockBLEService';
 import { bleService } from '../services/bleService';
 import { scheduleDailyAdviceNotifications } from '../services/dailyAdviceNotifications';
@@ -31,7 +33,7 @@ import { useDevice } from '../context/DeviceContext';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { colors } from '../constants/theme';
 import { loadActionFeedback, loadDailyActivityCheckIns } from '../services/userStorage';
-import { analyzeInterventionOutcomes, buildWeeklyRecap, calculateHabitCorrelations } from '../utils/wellnessAnalytics';
+import { buildWeeklyRecap } from '../utils/wellnessAnalytics';
 import { isOnDeviceModelDownloaded, requestOnDeviceAssessmentAdvice } from '../services/onDeviceAssessment';
 
 interface DashboardScreenProps {
@@ -63,14 +65,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const [weeklyAiGoals, setWeeklyAiGoals] = useState<string[] | null>(null);
   const [weeklyAiStatus, setWeeklyAiStatus] = useState<'idle' | 'loading' | 'ready'>('idle');
   const weeklyAiKeyRef = useRef('');
-  const [deviceStatus, setDeviceStatus] = useState({
-    connected: false,
-    mode: 'Connecting…',
-    signal: '—',
-    battery: 0,
-    pairingStatus: 'Pending',
-    lastSeen: '—',
-  });
   const [dateRange, setDateRange] = useState<DateRange>({
     from: moment().subtract(7, 'days').format('YYYY-MM-DD'),
     to: moment().format('YYYY-MM-DD'),
@@ -91,13 +85,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
     try {
       if (showFullScreenLoader) setLoading(true);
       await bleService.restoreSession();
-      if (bleService.isPaired() && !bleService.getIsConnected()) {
-        try {
-          await bleService.connect();
-        } catch (_) {
-          // Keep last synced data if reconnect fails
-        }
-      }
       const [events, savedCheckIns, savedFeedback] = await Promise.all([
         bleService.fetchSleepEvents(),
         loadDailyActivityCheckIns(),
@@ -120,25 +107,9 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           months.length >= 3 ? calculateTrend(months.slice(0, 2)) : 'stable';
       }
       setMonthHistory(months);
-      const device = bleService.getPairedDevice();
-      setDeviceStatus({
-        connected: bleService.getIsConnected(),
-        mode: bleService.getIsConnected() ? 'Monitoring' : 'Offline',
-        signal: device ? `${device.signalStrength} dBm` : '—',
-        battery: 82,
-        pairingStatus: device ? 'Aligned' : 'Not paired',
-        lastSeen: bleService.getIsConnected() ? 'just now' : 'offline',
-      });
     } catch (error) {
       console.error('Error loading data:', error);
       setDashboardData(null);
-      setDeviceStatus((current) => ({
-        ...current,
-        connected: false,
-        mode: 'Offline',
-        pairingStatus: 'Disconnected',
-        lastSeen: 'unavailable',
-      }));
     } finally {
       if (showFullScreenLoader) setLoading(false);
     }
@@ -387,16 +358,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
   const { data: chartData, title: chartTitle } = getChartData();
   const severityColor = getSeverityColor(stats.severity);
   const mood = getMoodStatus(stats.severity);
-  const interventionOutcomes = analyzeInterventionOutcomes(dashboardData.allData);
-  const successfulInterventions = interventionOutcomes.filter((outcome) => outcome.appearedEffective).length;
-  const interventionSuccessRatio = interventionOutcomes.length > 0
-    ? successfulInterventions / interventionOutcomes.length
-    : 0;
-  const interventionTrend = interventionSuccessRatio >= 0.6
-    ? 'improving'
-    : interventionSuccessRatio <= 0.25 ? 'worsening' : 'stable';
   const weeklyRecap = buildWeeklyRecap(dashboardData.allData);
-  const habitCorrelations = calculateHabitCorrelations(checkIns, dashboardData.allData);
   const latestMonth = monthHistory[monthHistory.length - 1];
   const previousMonth = monthHistory[monthHistory.length - 2];
   const monthlyEventChange =
@@ -417,9 +379,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
       : monthlyEventChange === 0
         ? { background: '#eff6ff', border: '#bfdbfe', accent: '#0284c7' }
         : { background: '#ecfdf5', border: '#a7f3d0', accent: '#059669' };
-  const lowBattery = deviceStatus.battery <= 20;
   const activeAlerts = [
-    connected && lowBattery ? 'Low battery detected' : null,
     stats.severity === 'danger' ? 'Elevated snoring risk detected' : null,
   ].filter(Boolean) as string[];
 
@@ -481,8 +441,8 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
               <Text style={[styles.moodLabel, { color: mood.color }]}>{mood.label}</Text>
               <Text style={styles.moodCaption}>{mood.caption}</Text>
               <View style={styles.connectionRow}>
-                <View style={[styles.liveDot, { backgroundColor: connected ? '#10b981' : '#f59e0b' }]} />
-                <Text style={styles.connectionText} numberOfLines={1}>
+                <View style={[styles.liveDot, { backgroundColor: connected ? '#10b981' : '#ea580c' }]} />
+                <Text style={[styles.connectionText, !connected && styles.connectionTextOffline]} numberOfLines={1}>
                   {connected
                     ? `${pairedDevice?.name || 'Smart pillow'} connected`
                     : pairedDevice
@@ -512,35 +472,41 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
               : 'Hagosaur preparing to connect the smart pillow cable'}
           />
           <View style={styles.connectionBannerCopy}>
-            <Text style={styles.connectionEyebrow}>HAGOSAUR CONNECTION CHECK</Text>
-            <Text style={styles.connectionTitle}>
+            <Text style={[styles.connectionEyebrow, !connected && styles.connectionEyebrowOffline]}>
+              HAGOSAUR CONNECTION CHECK
+            </Text>
+            <Text style={[styles.connectionTitle, !connected && styles.connectionTitleOffline]}>
               {connected
                 ? 'Smart pillow connected'
                 : pairedDevice
-                  ? 'Reconnect your smart pillow'
-                  : 'Connect your smart pillow'}
+                  ? 'Smart pillow offline'
+                  : 'Pair your smart pillow'}
             </Text>
             <Text style={styles.connectionCaption}>
               {connected
                 ? 'The cord is connected and Hagosaur is ready to monitor your sleep.'
                 : pairedDevice
-                  ? 'Your pillow is paired but currently offline. Reconnect it in Settings.'
+                  ? 'Bluetooth is offline. Unpair in Settings, then scan and pair again.'
                   : 'Pair your pillow in Settings so Hagosaur can begin tracking tonight.'}
             </Text>
             <View style={styles.connectionStateRow}>
               <FontAwesome5
                 name={connected ? 'link' : 'unlink'}
                 size={10}
-                color={connected ? '#047857' : '#b45309'}
+                color={connected ? '#047857' : '#c2410c'}
               />
               <Text style={[
                 styles.connectionStateText,
-                { color: connected ? '#047857' : '#b45309' },
+                { color: connected ? '#047857' : '#c2410c' },
               ]}>
                 {connected ? 'CONNECTED' : pairedDevice ? 'OFFLINE' : 'NOT PAIRED'}
               </Text>
             </View>
           </View>
+        </GlassCard>
+
+        <GlassCard style={styles.detectionCard}>
+          <SnoreDetectionControls compact />
         </GlassCard>
 
         {activeAlerts.length > 0 ? (
@@ -570,42 +536,19 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
         </View>
 
         <View style={styles.sectionHeadingRow}>
-          <Text style={styles.sectionTitle}>Key sleep metrics</Text>
-          <Text style={styles.sectionHint}>{activeFilter === 'week' ? 'Last 7 days' : chartTitle}</Text>
+          <Text style={styles.sectionTitle}>Live snore monitor</Text>
+          <Text style={styles.sectionHint}>Time · RMS</Text>
+        </View>
+        <View style={styles.sectionPadding}>
+          <LiveSnoreMonitor connected={connected} />
         </View>
 
-        <View style={styles.metricsSection}>
-          <StatsCard
-            label="Snoring Events"
-            value={stats.totalSnoreEvents}
-            icon="volume-up"
-            severity={stats.severity}
-          />
-          <StatsCard
-            label="Avg. Duration"
-            value={stats.averageDuration}
-            icon="clock"
-            unit=" sec"
-          />
-          <StatsCard label="Interventions" value={stats.interventionCount} icon="wind" />
-          <StatsCard
-            label="Peak Hour"
-            value={moment(stats.peakHour, 'H').format('hA')}
-            icon="moon"
-          />
-          <StatsCard
-            label="Intervention Success"
-            value={`${Math.round(interventionSuccessRatio * 100)}%`}
-            icon="check-double"
-            severity={
-              interventionTrend === 'improving'
-                ? 'normal'
-                : interventionTrend === 'worsening'
-                  ? 'danger'
-                  : 'bad'
-            }
-            style={styles.successMetric}
-          />
+        <View style={styles.sectionHeadingRow}>
+          <Text style={styles.sectionTitle}>Key sleep metrics</Text>
+          <Text style={styles.sectionHint}>Count · RMS · peak</Text>
+        </View>
+        <View style={styles.sectionPadding}>
+          <KeySleepMetricsChart events={dashboardData.allData} />
         </View>
 
         <View style={styles.sectionPadding}>
@@ -647,35 +590,6 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
                 <Text style={styles.goalText}>{goal}</Text>
               </View>
             ))}
-          </View>
-        </View>
-
-        <View style={styles.insightSection}>
-          <Text style={styles.insightSectionLabel}>Habit correlation</Text>
-          <View style={styles.habitCard}>
-            {habitCorrelations.length > 0 ? habitCorrelations.slice(0, 3).map((correlation) => (
-              <View key={correlation.activity} style={styles.habitRow}>
-                <View style={[styles.habitIcon, correlation.direction === 'more' ? styles.habitIconWatch : styles.habitIconGood]}>
-                  <FontAwesome5 name={correlation.direction === 'more' ? 'arrow-up' : correlation.direction === 'fewer' ? 'arrow-down' : 'minus'} size={10} color={correlation.direction === 'more' ? '#ef4444' : '#059669'} />
-                </View>
-                <View style={styles.habitCopy}>
-                  <Text style={styles.habitTitle}>{correlation.label}</Text>
-                  <Text style={styles.habitText}>{correlation.message}</Text>
-                  <Text style={styles.habitSamples}>{correlation.sampleCount} matching check-ins · {correlation.baselineCount} comparison nights</Text>
-                </View>
-              </View>
-            )) : (
-              <View style={styles.habitEmpty}>
-                <FontAwesome5 name="chart-pie" size={18} color={colors.accent} />
-                <View style={styles.habitEmptyCopy}>
-                  <Text style={styles.habitTitle}>Keep checking in</Text>
-                  <Text style={styles.habitText}>
-                    Hagosaur waits for at least 3 nights with a habit and 3 comparison nights before showing a pattern. You have {checkIns.length} saved check-in{checkIns.length === 1 ? '' : 's'}.
-                  </Text>
-                </View>
-              </View>
-            )}
-            <Text style={styles.habitDisclaimer}>Patterns show association, not medical cause.</Text>
           </View>
         </View>
 
@@ -959,8 +873,15 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   connectionText: { flex: 1, color: colors.textMuted, fontSize: 11, fontWeight: '600' },
+  connectionTextOffline: { color: '#c2410c', fontWeight: '700' },
   severityTextInline: { fontSize: 11, fontWeight: '800', marginLeft: 8 },
 
+  detectionCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
   connectionBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -974,8 +895,8 @@ const styles = StyleSheet.create({
     borderColor: '#a7f3d0',
   },
   connectionBannerOffline: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
+    backgroundColor: '#fff7ed',
+    borderColor: '#fdba74',
   },
   connectionHagosaur: {
     width: 88,
@@ -991,7 +912,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 2,
   },
+  connectionEyebrowOffline: { color: '#ea580c' },
   connectionTitle: { color: colors.text, fontSize: 14, fontWeight: '800', marginBottom: 3 },
+  connectionTitleOffline: { color: '#c2410c' },
   connectionCaption: { color: colors.textSecondary, fontSize: 11, lineHeight: 15 },
   connectionStateRow: {
     flexDirection: 'row',
@@ -1045,12 +968,6 @@ const styles = StyleSheet.create({
   moodCaption: { fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
   moodMeta: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
 
-  metricsSection: {
-    paddingHorizontal: 16,
-    gap: 8,
-    marginBottom: 12,
-  },
-  successMetric: { width: '100%' },
   insightSection: { marginHorizontal: 16, marginBottom: 18 },
   insightSectionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   weeklyRecapCard: { minHeight: 142, flexDirection: 'row', alignItems: 'center', overflow: 'hidden', padding: 10, borderRadius: 18, backgroundColor: '#ecfdf5', borderWidth: 1, borderColor: '#a7f3d0' },
@@ -1069,19 +986,6 @@ const styles = StyleSheet.create({
   goalNumber: { width: 22, height: 22, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft, marginRight: 9 },
   goalNumberText: { color: colors.accentDark, fontSize: 9, fontWeight: '900' },
   goalText: { flex: 1, color: colors.textSecondary, fontSize: 11, lineHeight: 16 },
-  habitCard: { padding: 14, borderRadius: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  habitRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12 },
-  habitIcon: { width: 32, height: 32, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  habitIconWatch: { backgroundColor: '#fee2e2' },
-  habitIconGood: { backgroundColor: '#d1fae5' },
-  habitCopy: { flex: 1 },
-  habitTitle: { color: colors.text, fontSize: 12, fontWeight: '800' },
-  habitText: { color: colors.textSecondary, fontSize: 11, lineHeight: 16, marginTop: 2 },
-  habitSamples: { color: colors.textMuted, fontSize: 8, marginTop: 4 },
-  habitEmpty: { flexDirection: 'row', alignItems: 'center' },
-  habitEmptyCopy: { flex: 1, marginLeft: 11 },
-  habitDisclaimer: { color: colors.textMuted, fontSize: 8, fontStyle: 'italic', marginTop: 7 },
-
   trendSection: { marginHorizontal: 16, marginBottom: 20 },
   trendLabel: {
     fontSize: 12,

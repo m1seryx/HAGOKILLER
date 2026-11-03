@@ -20,6 +20,7 @@ import {
   qualityCheckActions,
   selectVerifiedActions,
 } from '../utils/wellnessKnowledge';
+import { withSafeAssessmentFallback } from './safeAssessmentFallback';
 
 export const ON_DEVICE_MODEL_SPECS = {
   compact: {
@@ -392,13 +393,30 @@ export const requestOnDeviceAssessmentAdvice = (
   fallback: RecommendationData,
   feedback: ActionFeedbackRecord[] = [],
 ): Promise<RecommendationData> => {
-  const request = inferenceQueue.then(() => generateAdvice(
-    dailyStats,
-    monthlyStats,
-    checkIn,
-    fallback,
-    feedback,
-  ));
+  const request = inferenceQueue.then(async () => {
+    try {
+      return await withSafeAssessmentFallback(
+        dailyStats.severity,
+        fallback,
+        () => generateAdvice(
+          dailyStats,
+          monthlyStats,
+          checkIn,
+          fallback,
+          feedback,
+        ),
+      );
+    } finally {
+      // A mapped 0.5B/1.5B context can retain hundreds of MB after completion.
+      // Release it once the plan is ready so navigation and image-heavy screens
+      // do not compete with the model for memory on Android.
+      const completedContext = context;
+      context = null;
+      contextTier = null;
+      initialization = null;
+      await completedContext?.release().catch(() => undefined);
+    }
+  });
   inferenceQueue = request.then(() => undefined, () => undefined);
   return request;
 };

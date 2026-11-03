@@ -13,7 +13,7 @@ import {
  *   uint16 rms
  *   uint8  pumpSeconds
  *   uint8  streak
- *   uint8  flags  (bit0 = intervention)
+ *   uint8  flags  (bit0 = intervention, bit2 = max-elevation hold alert)
  *   uint8  reserved
  */
 export const ESP32_MSG_MAGIC = 0x48474f4b;
@@ -25,19 +25,69 @@ export const ESP32_EVENT_STOP = 3;
 export const ESP32_EVENT_OPEN_VALVE = 4;
 /** Firmware ESP-NOW: snore still active while pillow elevated (no pump). */
 export const ESP32_EVENT_SNORE_ACTIVE = 5;
+/** @deprecated Firmware no longer calibrates; kept for old packet ignore. */
+export const ESP32_EVENT_CALIBRATED = 7;
+/**
+ * Settings mic test preview (not a sleep event):
+ *   level = snore % (0–100)
+ *   rms   = non-snore % (0–100)
+ *   streak = 0 quiet / 1 non-snore / 2 snore
+ */
+export const ESP32_EVENT_MIC_TEST = 9;
 export const ESP32_FLAG_INTERVENTION = 0x01;
+/** Still snoring after the pump reached its maximum time; pillow is holding position. */
+export const ESP32_FLAG_MAX_HOLD = 0x04;
 export const ESP32_SETTINGS_MAGIC = 0x48475354;
 /** Command packet magic ("HGCM") written to the settings characteristic. */
 export const ESP32_COMMAND_MAGIC = 0x4847434d;
 
 export const SETTINGS_CHAR_UUID = '6ba1d005-8e2a-4b7c-9f10-22c0a1b2c3d4';
 
-export type PillowCommand = 'emergency_stop' | 'open_valve';
+export type PillowCommand =
+  | 'emergency_stop'
+  | 'open_valve'
+  | 'test_pump'
+  | 'mute_mic'
+  | 'unmute_mic'
+  | 'stop_detection'
+  | 'start_detection'
+  | 'mic_test_start'
+  | 'mic_test_stop';
 
 export const PILLOW_COMMAND_OPCODE: Record<PillowCommand, number> = {
   emergency_stop: 1,
   open_valve: 2,
+  test_pump: 3,
+  mute_mic: 4,
+  unmute_mic: 5,
+  stop_detection: 6,
+  start_detection: 7,
+  mic_test_start: 8,
+  mic_test_stop: 9,
 };
+
+export type MicTestVerdict = 'quiet' | 'non_snore' | 'snore';
+
+export interface MicTestPreview {
+  snorePercent: number;
+  nonSnorePercent: number;
+  verdict: MicTestVerdict;
+  timestamp: number;
+}
+
+export function micTestPreviewFromPacket(packet: Esp32PillowPacket): MicTestPreview {
+  const verdict: MicTestVerdict =
+    packet.streak === 2 ? 'snore' : packet.streak === 1 ? 'non_snore' : 'quiet';
+  return {
+    snorePercent: Math.max(0, Math.min(100, packet.level)),
+    nonSnorePercent: Math.max(0, Math.min(100, packet.rms)),
+    verdict,
+    timestamp: Date.now(),
+  };
+}
+
+/** Fixed test-pump run; firmware caps test runs at 10s. */
+export const TEST_PUMP_SECONDS = 5;
 
 export interface Esp32PillowPacket {
   magic: number;
@@ -102,8 +152,8 @@ export function encodePillowSettings(settings: DeviceSettings): Uint8Array {
  * Packed BLE write for emergency / valve commands (same SETTINGS char, different magic).
  * Firmware must branch on magic before treating the payload as SettingsMsg.
  *   uint32 magic 0x4847434D
- *   uint8  opcode (1 = emergency stop, 2 = open valve)
- *   uint8  argSeconds (valve open duration; 0 = firmware default)
+ *   uint8  opcode (1 stop, 2 open valve, 3 test pump, 4 mute mic, 5 unmute mic)
+ *   uint8  argSeconds (valve / test pump duration; 0 = firmware default)
  *   uint8  reserved[2]
  */
 export function encodePillowCommand(
@@ -127,11 +177,11 @@ export function sleepEventFromEsp32Packet(
   const isSnore = packet.eventCode === ESP32_EVENT_SOUND;
   const severity: SleepEvent['severity'] = level >= 8 ? 'high' : level >= 5 ? 'medium' : 'low';
   const pumpSeconds =
-    packet.pumpSeconds >= PUMP_DURATION_MIN_SEC && packet.pumpSeconds <= PUMP_DURATION_MAX_SEC
+    packet.pumpSeconds >= 1 && packet.pumpSeconds <= PUMP_DURATION_MAX_SEC
       ? packet.pumpSeconds
       : Math.max(
           PUMP_DURATION_MIN_SEC,
-          Math.min(PUMP_DURATION_MAX_SEC, fallbackPumpSeconds || 12),
+          Math.min(PUMP_DURATION_MAX_SEC, fallbackPumpSeconds || 40),
         );
   const intervene = (packet.flags & ESP32_FLAG_INTERVENTION) === ESP32_FLAG_INTERVENTION;
 
@@ -148,5 +198,6 @@ export function sleepEventFromEsp32Packet(
     rms: packet.rms,
     rawPayload: packet.rawHex,
     snoreStreak: packet.streak,
+    maxElevationHold: (packet.flags & ESP32_FLAG_MAX_HOLD) === ESP32_FLAG_MAX_HOLD,
   };
 }

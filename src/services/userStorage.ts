@@ -28,6 +28,7 @@ import {
   StoredPairedDevice,
   StoredDeviceSettings,
 } from './database';
+import { clearCalibrationLog } from './calibrationLog';
 
 export { initDatabase };
 
@@ -63,7 +64,10 @@ export const deleteStoredEvent = (eventId: string) => dbDeleteSleepEvent(eventId
 
 export const clearStoredEvents = () => dbClearSleepEvents();
 
-export const clearUserData = () => dbClearUserData();
+export const clearUserData = async () => {
+  await dbClearUserData();
+  await clearCalibrationLog();
+};
 
 export const saveDailyActivityCheckIn = (checkIn: DailyActivityCheckIn) =>
   dbSaveDailyActivityCheckIn(checkIn);

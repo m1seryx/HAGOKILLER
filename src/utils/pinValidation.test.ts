@@ -1,4 +1,4 @@
-import { isValidPairingPin } from './pinValidation';
+import { EXPECTED_PAIRING_PIN, isCorrectPairingPin, isValidPairingPin } from './pinValidation';
 
 describe('isValidPairingPin', () => {
   it('accepts any 7-digit numeric code', () => {
@@ -11,5 +11,13 @@ describe('isValidPairingPin', () => {
     expect(isValidPairingPin('12345678')).toBe(false);
     expect(isValidPairingPin('abc1234')).toBe(false);
     expect(isValidPairingPin('')).toBe(false);
+  });
+});
+
+describe('isCorrectPairingPin', () => {
+  it('accepts only the pillow pairing PIN', () => {
+    expect(isCorrectPairingPin(EXPECTED_PAIRING_PIN)).toBe(true);
+    expect(isCorrectPairingPin('0000000')).toBe(false);
+    expect(isCorrectPairingPin('1111111')).toBe(false);
   });
 });

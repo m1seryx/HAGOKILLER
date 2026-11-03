@@ -4,6 +4,10 @@ import { SleepEvent } from '../types';
 import { loadDeviceSettings, loadNotificationsEnabled, saveNotificationsEnabled } from './userStorage';
 import { DEFAULT_DEVICE_SETTINGS } from './deviceSettings';
 
+/** Must match riskAlarmSound.ts category / channel IDs. */
+const RISK_ALARM_CATEGORY_ID = 'riskalarm';
+const RISK_ALARM_CHANNEL_ID = 'riskalarm';
+
 let notificationsEnabled = true;
 
 if (Platform.OS !== 'web') {
@@ -79,6 +83,7 @@ async function presentNotification(title: string, body: string, data?: Record<st
 
 /** Only alert when the consecutive threshold is hit or the pump is inflating. */
 export function shouldNotifySnoreEvent(event: SleepEvent, snoreThreshold: number): boolean {
+  if (event.maxElevationHold) return true;
   if (event.interventionTriggered) return true;
   if (event.snoreStreak != null && event.snoreStreak >= snoreThreshold) return true;
   return false;
@@ -90,6 +95,26 @@ export async function notifySnoreDetected(event: SleepEvent): Promise<void> {
   const settings = await loadDeviceSettings();
   const threshold = settings?.snoreThreshold ?? DEFAULT_DEVICE_SETTINGS.snoreThreshold;
   if (!shouldNotifySnoreEvent(event, threshold)) return;
+
+  if (event.maxElevationHold) {
+    if (Platform.OS === 'web') return;
+    // Category is registered by riskAlarmSound when the ringtone starts.
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Still Snoring at Max Elevation',
+        body: 'Pillow is holding and the risk ringtone is looping. Press Stop to silence it.',
+        categoryIdentifier: RISK_ALARM_CATEGORY_ID,
+        sticky: true,
+        autoDismiss: false,
+        sound: true,
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        data: { type: 'risk_alarm', eventId: event.id },
+        ...(Platform.OS === 'android' ? { channelId: RISK_ALARM_CHANNEL_ID } : null),
+      },
+      trigger: null,
+    });
+    return;
+  }
 
   const severity = event.severity.charAt(0).toUpperCase() + event.severity.slice(1);
   const streakNote =
@@ -103,6 +128,18 @@ export async function notifySnoreDetected(event: SleepEvent): Promise<void> {
     : `Hagosaur detected ${severity.toLowerCase()} snoring${streakNote}. Check your sleep dashboard for details.`;
 
   await presentNotification(title, body, { eventId: event.id });
+}
+
+export async function notifyMicCalibrated(fresh = true): Promise<void> {
+  if (!notificationsEnabled) return;
+
+  await presentNotification(
+    'Mic Ready',
+    fresh
+      ? 'Calibration complete. Hagosaur is now listening for snoring.'
+      : 'Reconnected. Hagosaur is listening for snoring again.',
+    { type: 'mic_calibrated' },
+  );
 }
 
 export async function sendTestNotification(): Promise<void> {

@@ -353,7 +353,7 @@ export async function dbLoadDeviceSettings(): Promise<StoredDeviceSettings | nul
   return normalizeDeviceSettings({
     snoreThreshold: row.snore_threshold,
     pumpDuration: row.pump_duration,
-    micShift: row.mic_shift ?? 14,
+    micShift: row.mic_shift ?? 12,
     snoreWindowSec: row.snore_window ?? 15,
   });
 }

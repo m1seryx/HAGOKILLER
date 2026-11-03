@@ -9,10 +9,21 @@
 import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { BleError, BleManager, Characteristic, Device, State } from 'react-native-ble-plx';
 import { BLEDevice, SleepEvent } from '../types';
-import { isValidPairingPin } from '../utils/pinValidation';
+import { isCorrectPairingPin, isValidPairingPin } from '../utils/pinValidation';
 import { loadPairedDevice, savePairedDevice, setDevicePaired, persistPillowEvent } from './userStorage';
 import { DeviceSettings, MockBLEService } from './mockBLEService';
-import { parseEsp32PillowPacket, sleepEventFromEsp32Packet, encodePillowSettings, encodePillowCommand, SETTINGS_CHAR_UUID, PillowCommand } from './esp32Protocol';
+import {
+  parseEsp32PillowPacket,
+  sleepEventFromEsp32Packet,
+  encodePillowSettings,
+  encodePillowCommand,
+  SETTINGS_CHAR_UUID,
+  PillowCommand,
+  ESP32_EVENT_CALIBRATED,
+  ESP32_EVENT_MIC_TEST,
+  micTestPreviewFromPacket,
+  MicTestPreview,
+} from './esp32Protocol';
 
 export const PHONE_SERVICE_UUID = '6ba1d001-8e2a-4b7c-9f10-22c0a1b2c3d4';
 export const PIN_CHAR_UUID = '6ba1d002-8e2a-4b7c-9f10-22c0a1b2c3d4';
@@ -21,7 +32,8 @@ export const EVENT_CHAR_UUID = '6ba1d004-8e2a-4b7c-9f10-22c0a1b2c3d4';
 export { SETTINGS_CHAR_UUID };
 
 const DEVICE_NAME_MATCH = 'HAGOKILLER';
-const DEMO_PINS = new Set(['1234567', '0000000']);
+const AUTH_WAIT_MS = 2500;
+const INCORRECT_PIN_MESSAGE = 'Incorrect PIN. Check the sticker under the pillow.';
 
 const toBase64Bytes = (bytes: Uint8Array) => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -71,6 +83,8 @@ export class RealBleService {
   private activeDevice: Device | null = null;
   private listeners = new Set<() => void>();
   private eventMonitor: { remove: () => void } | null = null;
+  private detectionEnabled = false;
+  private micTestListeners = new Set<(preview: MicTestPreview) => void>();
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -83,6 +97,23 @@ export class RealBleService {
 
   subscribeEvents(listener: (event: SleepEvent) => void): () => void {
     return this.data.subscribeEvents(listener);
+  }
+
+  subscribeMicTest(listener: (preview: MicTestPreview) => void): () => void {
+    this.micTestListeners.add(listener);
+    return () => {
+      this.micTestListeners.delete(listener);
+    };
+  }
+
+  private emitMicTest(preview: MicTestPreview) {
+    this.micTestListeners.forEach((listener) => {
+      try {
+        listener(preview);
+      } catch {
+        // ignore listener errors
+      }
+    });
   }
 
   private notify() {
@@ -241,12 +272,80 @@ export class RealBleService {
     }
   }
 
+  private async dropActiveConnection(): Promise<void> {
+    this.eventMonitor?.remove();
+    this.eventMonitor = null;
+    if (this.activeDevice) {
+      try {
+        await this.activeDevice.cancelConnection();
+      } catch {
+        // ignore
+      }
+    }
+    this.activeDevice = null;
+    this.connected = false;
+    this.notify();
+  }
+
+  private async readAuthFlag(device: Device): Promise<boolean> {
+    const auth = await device.readCharacteristicForService(PHONE_SERVICE_UUID, AUTH_CHAR_UUID);
+    const bytes = auth.value ? fromBase64(auth.value) : new Uint8Array([0]);
+    return bytes.length > 0 && bytes[0] === 1;
+  }
+
+  /** Wait until AUTH notify/read reports paired, or time out as rejected. */
+  private async waitForAuth(device: Device): Promise<boolean> {
+    if (await this.readAuthFlag(device)) return true;
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          subscription.remove();
+        } catch {
+          // ignore
+        }
+        resolve(ok);
+      };
+
+      const timer = setTimeout(() => {
+        void this.readAuthFlag(device)
+          .then((ok) => finish(ok))
+          .catch(() => finish(false));
+      }, AUTH_WAIT_MS);
+
+      const subscription = device.monitorCharacteristicForService(
+        PHONE_SERVICE_UUID,
+        AUTH_CHAR_UUID,
+        (error, characteristic) => {
+          if (error || !characteristic?.value) return;
+          const bytes = fromBase64(characteristic.value);
+          if (bytes.length > 0 && bytes[0] === 1) finish(true);
+          if (bytes.length > 0 && bytes[0] === 0) finish(false);
+        },
+      );
+
+      // Poll once shortly after the PIN write in case notify was missed.
+      setTimeout(() => {
+        void this.readAuthFlag(device)
+          .then((ok) => {
+            if (ok) finish(true);
+          })
+          .catch(() => undefined);
+      }, 250);
+    });
+  }
+
   async pair(device: BLEDevice, pin: string): Promise<BLEDevice> {
     if (!isValidPairingPin(pin)) {
       throw new Error('Enter the 7-digit PIN from your pillow label.');
     }
-    if (!DEMO_PINS.has(pin) && pin !== '1234567') {
-      // still send to device — device decides; keep client-side tip for demo pins
+    // Block GATT pairing until the label PIN matches — do not connect on a wrong code.
+    if (!isCorrectPairingPin(pin)) {
+      throw new Error(INCORRECT_PIN_MESSAGE);
     }
 
     await this.ensurePermissions();
@@ -258,42 +357,51 @@ export class RealBleService {
       // ignore
     }
 
-    const connected = await this.manager.connectToDevice(device.id, { autoConnect: false });
-    await connected.discoverAllServicesAndCharacteristics();
-    this.activeDevice = connected;
-
-    await connected.writeCharacteristicWithResponseForService(
-      PHONE_SERVICE_UUID,
-      PIN_CHAR_UUID,
-      toBase64(pin),
-    );
-
-    // Read auth flag
-    const auth = await connected.readCharacteristicForService(PHONE_SERVICE_UUID, AUTH_CHAR_UUID);
-    const bytes = auth.value ? fromBase64(auth.value) : new Uint8Array([0]);
-    if (!bytes.length || bytes[0] !== 1) {
-      await connected.cancelConnection();
-      this.activeDevice = null;
-      throw new Error('Incorrect PIN. Check the sticker under the pillow.');
-    }
-
-    this.connected = true;
-    this.pairedDevice = { ...device, name: device.name || 'HAGOKILLER Pillow', isConnected: true };
-    await savePairedDevice({
-      id: device.id,
-      name: this.pairedDevice.name,
-      bleAddress: device.bleAddress || device.id,
-      signalStrength: device.signalStrength,
-    });
-    await setDevicePaired(true);
-    this.monitorEvents(connected);
+    let connected: Device | null = null;
     try {
-      await this.pushSettingsToDevice(this.getDeviceSettings());
-    } catch {
-      // Older firmware without the settings characteristic can still pair.
+      connected = await this.manager.connectToDevice(device.id, { autoConnect: false });
+      await connected.discoverAllServicesAndCharacteristics();
+      this.activeDevice = connected;
+
+      await connected.writeCharacteristicWithResponseForService(
+        PHONE_SERVICE_UUID,
+        PIN_CHAR_UUID,
+        toBase64(pin),
+      );
+
+      const authed = await this.waitForAuth(connected);
+      if (!authed) {
+        await this.dropActiveConnection();
+        throw new Error(INCORRECT_PIN_MESSAGE);
+      }
+
+      this.connected = true;
+      this.detectionEnabled = false;
+      this.pairedDevice = { ...device, name: device.name || 'HAGOKILLER Pillow', isConnected: true };
+      await savePairedDevice({
+        id: device.id,
+        name: this.pairedDevice.name,
+        bleAddress: device.bleAddress || device.id,
+        signalStrength: device.signalStrength,
+      });
+      await setDevicePaired(true);
+      this.monitorEvents(connected);
+      try {
+        await this.pushSettingsToDevice(this.getDeviceSettings());
+      } catch {
+        // Older firmware without the settings characteristic can still pair.
+      }
+      this.notify();
+      return this.pairedDevice;
+    } catch (error) {
+      if (this.activeDevice || connected) {
+        await this.dropActiveConnection();
+      }
+      if (error instanceof Error && error.message === INCORRECT_PIN_MESSAGE) {
+        throw error;
+      }
+      throw error instanceof Error ? error : new Error('Pairing failed.');
     }
-    this.notify();
-    return this.pairedDevice;
   }
 
   private monitorEvents(device: Device) {
@@ -316,8 +424,17 @@ export class RealBleService {
       const packet = parseEsp32PillowPacket(bytes);
       if (!packet) return;
 
-      const event = sleepEventFromEsp32Packet(packet, this.getDeviceSettings().pumpDuration);
+      if (packet.eventCode === ESP32_EVENT_CALIBRATED) {
+        // Old firmware only — ignore; calibration was removed.
+        return;
+      }
 
+      if (packet.eventCode === ESP32_EVENT_MIC_TEST) {
+        this.emitMicTest(micTestPreviewFromPacket(packet));
+        return;
+      }
+
+      const event = sleepEventFromEsp32Packet(packet, this.getDeviceSettings().pumpDuration);
       void persistPillowEvent(event)
         .then(() => this.data.addNewEvent(event))
         .then(() => this.notify())
@@ -338,12 +455,19 @@ export class RealBleService {
     await connected.discoverAllServicesAndCharacteristics();
     this.activeDevice = connected;
     this.connected = true;
+    // Never auto-listen after reconnect — user must tap Start.
+    this.detectionEnabled = false;
     this.pairedDevice = { ...this.pairedDevice, isConnected: true };
     this.monitorEvents(connected);
     try {
       await this.pushSettingsToDevice(this.getDeviceSettings());
     } catch {
       // Older firmware without the settings characteristic can still connect.
+    }
+    try {
+      await this.sendDeviceCommand('stop_detection');
+    } catch {
+      // Older firmware without start/stop detection still connects paused in the app UI.
     }
     this.notify();
     return true;
@@ -417,6 +541,10 @@ export class RealBleService {
     return this.data.getDeviceSettings();
   }
 
+  isSnoreDetectionEnabled(): boolean {
+    return this.detectionEnabled;
+  }
+
   async sendDeviceCommand(command: PillowCommand, argSeconds = 0): Promise<void> {
     if (!this.activeDevice || !this.connected) {
       throw new Error('Connect the pillow before using emergency controls.');
@@ -428,6 +556,12 @@ export class RealBleService {
         SETTINGS_CHAR_UUID,
         toBase64Bytes(payload),
       );
+      if (command === 'stop_detection') this.detectionEnabled = false;
+      if (command === 'start_detection') this.detectionEnabled = true;
+      if (command === 'mic_test_start' && this.detectionEnabled) {
+        throw new Error('Pause overnight detection before testing the mic.');
+      }
+      this.notify();
     } catch {
       throw new Error(
         'Pillow did not accept the command. Flash the firmware that supports emergency STOP / valve commands.',

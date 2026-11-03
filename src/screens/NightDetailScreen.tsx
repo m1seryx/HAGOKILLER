@@ -13,11 +13,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import moment from 'moment';
 import { NightDetailCard } from '../components/NightDetailCard';
 import { bleService } from '../services/bleService';
 import { SleepEvent } from '../types';
-import { calculateNightDetail, getNightKey, listRecentNightKeys } from '../utils/statsCalculator';
+import { calculateNightDetail, getCurrentNightKey, getNightKey, listRecentNightKeys } from '../utils/statsCalculator';
 import { colors } from '../constants/theme';
 import { registerNightExitAnimation } from '../services/nightTabTransition';
 
@@ -165,7 +164,7 @@ export const NightDetailScreen = () => {
   const compact = width < 380;
   const sceneProgress = React.useRef(new Animated.Value(0)).current;
   const [events, setEvents] = useState<SleepEvent[]>([]);
-  const [selectedNightKey, setSelectedNightKey] = useState(moment().format('YYYY-MM-DD'));
+  const [selectedNightKey, setSelectedNightKey] = useState(getCurrentNightKey);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   useFocusEffect(

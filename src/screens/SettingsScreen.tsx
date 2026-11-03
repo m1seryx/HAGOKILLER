@@ -21,7 +21,9 @@ import moment from 'moment';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { GlassCard } from '../components/GlassCard';
 import { ConfirmModal } from '../components/ConfirmModal';
-import { ProfileAvatar } from '../components/ProfileAvatar';
+import { SnoreDetectionControls } from '../components/SnoreDetectionControls';
+import { BleRadarAnimation } from '../components/BleRadarAnimation';
+import { MicTestRadar } from '../components/MicTestRadar';
 import { useDevice } from '../context/DeviceContext';
 import { useUser } from '../context/UserContext';
 import { bleService, isMockBle } from '../services/bleService';
@@ -30,6 +32,7 @@ import {
   setNotificationsEnabled,
   sendTestNotification,
 } from '../services/snoreNotifications';
+import { playRiskAlarmSound, stopRiskAlarmSound, subscribeRiskAlarm } from '../services/riskAlarmSound';
 import {
   cancelDailyAdviceNotifications,
   scheduleDailyAdviceNotifications,
@@ -46,6 +49,7 @@ import {
   SNORE_WINDOW_MIN_SEC,
   SNORE_WINDOW_STEP_SEC,
 } from '../services/deviceSettings';
+import { TEST_PUMP_SECONDS } from '../services/esp32Protocol';
 import type { PillowCommand } from '../services/esp32Protocol';
 import {
   isOnDeviceAiSupported,
@@ -98,33 +102,40 @@ export const SettingsScreen = () => {
   const { width } = useWindowDimensions();
   const compact = width < 380;
   const navigation = useNavigation<any>();
-  const { userName, userProfile } = useUser();
+  const { userName } = useUser();
   const {
     connected,
     pairedDevice,
     scanning,
     nearbyDevices,
+    snoreDetectionEnabled,
+    micTestActive,
+    micTestPreview,
     scan,
     pair,
     connect,
     disconnect,
     unpair,
+    startMicTest,
+    stopMicTest,
   } = useDevice();
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [micTestBusy, setMicTestBusy] = useState(false);
   const [snoreThreshold, setSnoreThreshold] = useState(3);
   const [snoreWindowSec, setSnoreWindowSec] = useState(15);
-  const [pumpDuration, setPumpDuration] = useState(12);
-  const [micShift, setMicShift] = useState(15);
+  const [pumpDuration, setPumpDuration] = useState(40);
+  const [micShift, setMicShift] = useState(12);
   const settingsDirtyRef = useRef(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [saveError, setSaveError] = useState(false);
   const [confirmVisible, setConfirmVisible] = useState(false);
-  const [disconnectVisible, setDisconnectVisible] = useState(false);
-  const [reconnectVisible, setReconnectVisible] = useState(false);
   const [unpairVisible, setUnpairVisible] = useState(false);
+  const [reconnectVisible, setReconnectVisible] = useState(false);
+  const [disconnectVisible, setDisconnectVisible] = useState(false);
   const [stopConfirmVisible, setStopConfirmVisible] = useState(false);
+  const [testPumpConfirmVisible, setTestPumpConfirmVisible] = useState(false);
   const [valveConfirmVisible, setValveConfirmVisible] = useState(false);
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandMessage, setCommandMessage] = useState('');
@@ -135,6 +146,10 @@ export const SettingsScreen = () => {
   const [pinError, setPinError] = useState('');
   const [notificationsOn, setNotificationsOn] = useState(true);
   const [testingNotif, setTestingNotif] = useState(false);
+  const [alarmPlaying, setAlarmPlaying] = useState(false);
+  const [panel, setPanel] = useState<
+    null | 'notifications' | 'model' | 'pairing' | 'health' | 'detection' | 'controls'
+  >(null);
   const [modelRepairStatus, setModelRepairStatus] = useState<'idle' | 'downloading' | 'success' | 'error'>('idle');
   const [repairConfirmVisible, setRepairConfirmVisible] = useState(false);
   const [modelDownloadTier, setModelDownloadTier] = useState<OnDeviceModelTier | null>(null);
@@ -175,6 +190,7 @@ export const SettingsScreen = () => {
       loadSleepEvents()
         .then((events) => setLastPillowSync(events[0]?.timestamp ?? null))
         .catch(() => setLastPillowSync(null));
+      // Mic test keeps running until the user taps Stop (do not auto-stop on blur).
     }, [loadStoredSettings]),
   );
 
@@ -211,15 +227,19 @@ export const SettingsScreen = () => {
   const runPillowCommand = async (command: PillowCommand) => {
     setStopConfirmVisible(false);
     setValveConfirmVisible(false);
+    setTestPumpConfirmVisible(false);
     setCommandBusy(true);
     setCommandMessage('');
     try {
-      await bleService.sendDeviceCommand(command, command === 'open_valve' ? 8 : 0);
+      const argSeconds = command === 'open_valve' ? 8 : command === 'test_pump' ? TEST_PUMP_SECONDS : 0;
+      await bleService.sendDeviceCommand(command, argSeconds);
       setCommandError(false);
       setCommandMessage(
         command === 'emergency_stop'
           ? 'Air pump stop sent to pillow.'
-          : 'Open solenoid valve sent to pillow.',
+          : command === 'test_pump'
+            ? `Test pump sent — the pump should run for ${TEST_PUMP_SECONDS}s.`
+            : 'Open solenoid valve sent to pillow.',
       );
       setTimeout(() => setCommandMessage(''), 4000);
     } catch (error) {
@@ -256,32 +276,16 @@ export const SettingsScreen = () => {
       return;
     }
     setBusy(true);
+    setPinError('');
     try {
       await pair(selectedDevice, pin);
       setPinModalVisible(false);
       setPin('');
     } catch (error) {
+      // Stay on the PIN screen until the correct code is entered.
+      setPin('');
       setPinError(error instanceof Error ? error.message : 'Pairing failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleConnect = async () => {
-    setReconnectVisible(false);
-    setBusy(true);
-    try {
-      await connect();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    setDisconnectVisible(false);
-    setBusy(true);
-    try {
-      await disconnect();
+      setTimeout(() => pinRef.current?.focus(), 200);
     } finally {
       setBusy(false);
     }
@@ -292,6 +296,36 @@ export const SettingsScreen = () => {
     setBusy(true);
     try {
       await unpair();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReconnect = async () => {
+    setReconnectVisible(false);
+    setBusy(true);
+    try {
+      await connect();
+    } catch (error) {
+      Alert.alert(
+        'Reconnect failed',
+        error instanceof Error ? error.message : 'Could not restore the Bluetooth link.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setDisconnectVisible(false);
+    setBusy(true);
+    try {
+      await disconnect();
+    } catch (error) {
+      Alert.alert(
+        'Disconnect failed',
+        error instanceof Error ? error.message : 'Could not close the Bluetooth link.',
+      );
     } finally {
       setBusy(false);
     }
@@ -326,6 +360,30 @@ export const SettingsScreen = () => {
       );
     } finally {
       setTestingNotif(false);
+    }
+  };
+
+  useEffect(() => subscribeRiskAlarm(setAlarmPlaying), []);
+
+  const handleTestAlarm = async () => {
+    try {
+      await playRiskAlarmSound();
+    } catch (error) {
+      Alert.alert(
+        'Alarm test failed',
+        error instanceof Error ? error.message : 'Could not play the alarm ringtone.',
+      );
+    }
+  };
+
+  const handleStopAlarm = async () => {
+    try {
+      await stopRiskAlarmSound();
+    } catch (error) {
+      Alert.alert(
+        'Could not stop the alarm',
+        error instanceof Error ? error.message : 'The ringtone is still playing.',
+      );
     }
   };
 
@@ -377,7 +435,7 @@ export const SettingsScreen = () => {
     );
   }
 
-  const statusColor = connected ? '#10b981' : pairedDevice ? '#f59e0b' : '#94a3b8';
+  const statusColor = connected ? '#10b981' : pairedDevice ? '#ea580c' : '#94a3b8';
   const statusLabel = connected ? 'Connected' : pairedDevice ? 'Paired · Offline' : 'Not paired';
   const signalQuality = !pairedDevice
     ? 'Unavailable'
@@ -391,38 +449,83 @@ export const SettingsScreen = () => {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.pageColumn}>
-        <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Manage your account, smart pillow, alerts, and device behavior.</Text>
+        {panel == null ? (
+          <>
+            <Text style={styles.title}>Settings</Text>
 
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionEyebrow}>ACCOUNT</Text>
-          <Text style={styles.sectionTitle}>Your profile</Text>
-        </View>
+            <Text style={styles.groupLabel}>Account</Text>
+            <TouchableOpacity
+              style={styles.menuRow}
+              onPress={() => navigation.navigate('Profile')}
+              activeOpacity={0.6}
+            >
+              <FontAwesome5 name="user" size={16} color={colors.accentDark} style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>{userName || 'Profile'}</Text>
+              <FontAwesome5 name="chevron-right" size={12} color="#c5ced6" />
+            </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.profileCard}
-          onPress={() => navigation.navigate('Profile')}
-          activeOpacity={0.85}
-        >
-          <ProfileAvatar
-            name={userName}
-            photoUri={userProfile?.photoUri}
-            size={56}
-            radius={16}
-          />
-          <View style={styles.profileCopy}>
-            <Text style={styles.profileName}>{userName || 'Guest User'}</Text>
-            <Text style={styles.profileHint}>Edit profile and photo</Text>
-          </View>
-          <FontAwesome5 name="chevron-right" size={14} color="#94a3b8" />
-        </TouchableOpacity>
+            <Text style={styles.groupLabel}>Pillow</Text>
+            {[
+              ['bluetooth-b', 'Pairing', 'pairing', statusLabel],
+              ['heartbeat', 'Device health', 'health', healthNeedsAttention ? 'Check' : 'Ready'],
+              ['sliders-h', 'Detection and inflation', 'detection', `${snoreThreshold} in ${snoreWindowSec}s`],
+              ['hand-paper', 'Manual controls', 'controls', connected ? 'Ready' : 'Offline'],
+            ].map(([icon, label, id, value]) => (
+              <TouchableOpacity
+                key={id}
+                style={styles.menuRow}
+                onPress={() => setPanel(id as 'pairing')}
+                activeOpacity={0.6}
+              >
+                <FontAwesome5 name={icon as 'bluetooth-b'} size={16} color={colors.accentDark} style={styles.menuIcon} />
+                <Text style={styles.menuLabel}>{label}</Text>
+                <Text style={styles.menuValue}>{value}</Text>
+                <FontAwesome5 name="chevron-right" size={12} color="#c5ced6" />
+              </TouchableOpacity>
+            ))}
 
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionEyebrow}>ALERTS</Text>
-          <Text style={styles.sectionTitle}>Notifications</Text>
-        </View>
+            <Text style={styles.groupLabel}>Alerts</Text>
+            <TouchableOpacity style={styles.menuRow} onPress={() => setPanel('notifications')} activeOpacity={0.6}>
+              <FontAwesome5 name="bell" size={16} color={colors.accentDark} style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>Notifications</Text>
+              <Text style={styles.menuValue}>{notificationsOn ? 'On' : 'Off'}</Text>
+              <FontAwesome5 name="chevron-right" size={12} color="#c5ced6" />
+            </TouchableOpacity>
 
-        <GlassCard style={styles.card}>
+            <Text style={styles.groupLabel}>Guidance</Text>
+            <TouchableOpacity style={styles.menuRow} onPress={() => setPanel('model')} activeOpacity={0.6}>
+              <FontAwesome5 name="brain" size={16} color={colors.accentDark} style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>On-device AI</Text>
+              <FontAwesome5 name="chevron-right" size={12} color="#c5ced6" />
+            </TouchableOpacity>
+
+            <Text style={styles.groupLabel}>About</Text>
+            <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('Faq')} activeOpacity={0.6}>
+              <FontAwesome5 name="question-circle" size={16} color={colors.accentDark} style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>FAQ</Text>
+              <FontAwesome5 name="chevron-right" size={12} color="#c5ced6" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('About')} activeOpacity={0.6}>
+              <FontAwesome5 name="info-circle" size={16} color={colors.accentDark} style={styles.menuIcon} />
+              <Text style={styles.menuLabel}>About</Text>
+              <FontAwesome5 name="chevron-right" size={12} color="#c5ced6" />
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity style={styles.detailBack} onPress={() => setPanel(null)} activeOpacity={0.6}>
+            <FontAwesome5 name="chevron-left" size={14} color={colors.accentDark} />
+            <Text style={styles.detailTitle}>
+              {panel === 'notifications' ? 'Notifications'
+                : panel === 'model' ? 'On-device AI'
+                  : panel === 'pairing' ? 'Pairing'
+                    : panel === 'health' ? 'Device health'
+                      : panel === 'detection' ? 'Detection and inflation'
+                        : 'Manual controls'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {panel === 'notifications' ? <GlassCard style={styles.card}>
           <View style={styles.deviceTitleRow}>
             <FontAwesome5 name="bell" size={16} color="#0284c7" />
             <Text style={styles.cardTitle}>Push notifications</Text>
@@ -470,13 +573,29 @@ export const SettingsScreen = () => {
               </>
             )}
           </TouchableOpacity>
-        </GlassCard>
+          <TouchableOpacity
+            style={[styles.testButton, styles.alarmPlayButton, alarmPlaying && styles.saveButtonDisabled]}
+            onPress={handleTestAlarm}
+            disabled={alarmPlaying}
+          >
+            <FontAwesome5 name="volume-up" size={13} color="#ffffff" />
+            <Text style={styles.testButtonText}>Play test alarm</Text>
+          </TouchableOpacity>
+          {alarmPlaying ? (
+            <TouchableOpacity
+              style={[styles.testButton, styles.alarmStopButton]}
+              onPress={handleStopAlarm}
+            >
+              <FontAwesome5 name="stop" size={13} color="#ffffff" />
+              <Text style={styles.testButtonText}>Stop alarm</Text>
+            </TouchableOpacity>
+          ) : null}
+          <Text style={styles.alarmTestHint}>
+            The ringtone loops until you tap Stop here or Stop on the notification.
+          </Text>
+        </GlassCard> : null}
 
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionEyebrow}>INTELLIGENCE</Text>
-          <Text style={styles.sectionTitle}>On-device guidance</Text>
-        </View>
-
+        {panel === 'model' ? (
         <GlassCard style={styles.card}>
           <View style={styles.deviceTitleRow}>
             <FontAwesome5 name="tools" size={16} color={colors.accentDark} />
@@ -549,12 +668,9 @@ export const SettingsScreen = () => {
             )}
           </TouchableOpacity>
         </GlassCard>
+        ) : null}
 
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionEyebrow}>HAGOKILLER</Text>
-          <Text style={styles.sectionTitle}>Pairing and connection</Text>
-        </View>
-
+        {panel === 'pairing' ? (
         <GlassCard style={styles.card}>
           <View style={styles.deviceHeader}>
             <View style={styles.deviceTitleRow}>
@@ -566,6 +682,14 @@ export const SettingsScreen = () => {
               <Text style={[styles.badgeText, { color: statusColor }]}>{statusLabel}</Text>
             </View>
           </View>
+
+          <BleRadarAnimation
+            scanning={scanning}
+            connected={connected}
+            paired={!!pairedDevice}
+            devices={!pairedDevice ? nearbyDevices : []}
+            onSelectDevice={openPinModal}
+          />
 
           <Text style={styles.cardHint}>
             {isMockBle
@@ -587,31 +711,7 @@ export const SettingsScreen = () => {
           ))}
 
           <View style={styles.actionRow}>
-            {connected ? (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.disconnectButton]}
-                onPress={() => setDisconnectVisible(true)}
-                disabled={busy}
-              >
-                <FontAwesome5 name="unlink" size={13} color="#fecaca" />
-                <Text style={styles.disconnectText}>Disconnect</Text>
-              </TouchableOpacity>
-            ) : pairedDevice ? (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.connectButton]}
-                onPress={() => setReconnectVisible(true)}
-                disabled={busy}
-              >
-                {busy ? (
-                  <ActivityIndicator color="#ffffff" size="small" />
-                ) : (
-                  <>
-                    <FontAwesome5 name="link" size={13} color="#ffffff" />
-                    <Text style={styles.connectText}>Reconnect</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            ) : (
+            {!pairedDevice ? (
               <TouchableOpacity
                 style={[styles.actionButton, styles.connectButton]}
                 onPress={handleScan}
@@ -626,156 +726,421 @@ export const SettingsScreen = () => {
                   </>
                 )}
               </TouchableOpacity>
+            ) : (
+              <>
+                {connected ? (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.disconnectButton]}
+                    onPress={() => setDisconnectVisible(true)}
+                    disabled={busy}
+                  >
+                    {busy ? (
+                      <ActivityIndicator color="#fecaca" size="small" />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="bluetooth" size={13} color="#fecaca" />
+                        <Text style={styles.disconnectText}>Disconnect</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.connectButton]}
+                    onPress={() => setReconnectVisible(true)}
+                    disabled={busy}
+                  >
+                    {busy ? (
+                      <ActivityIndicator color="#ffffff" size="small" />
+                    ) : (
+                      <>
+                        <FontAwesome5 name="sync" size={13} color="#ffffff" />
+                        <Text style={styles.connectText}>Reconnect</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.unpairButton]}
+                  onPress={() => setUnpairVisible(true)}
+                  disabled={busy}
+                >
+                  <FontAwesome5 name="unlink" size={13} color={colors.textSecondary} />
+                  <Text style={styles.unpairText}>Unpair</Text>
+                </TouchableOpacity>
+              </>
             )}
-
-            {pairedDevice ? (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.unpairButton]}
-                onPress={() => setUnpairVisible(true)}
-                disabled={busy}
-              >
-                <Text style={styles.unpairText}>Unpair</Text>
-              </TouchableOpacity>
-            ) : null}
           </View>
 
-          {!pairedDevice && nearbyDevices.length > 0 ? (
-            <View style={styles.scanList}>
-              <Text style={styles.scanTitle}>Nearby pillows</Text>
-              {nearbyDevices.map((device) => (
-                <TouchableOpacity
-                  key={device.id}
-                  style={styles.deviceRow}
-                  onPress={() => openPinModal(device)}
-                >
-                  <View>
-                    <Text style={styles.deviceName}>{device.name}</Text>
-                    <Text style={styles.deviceMeta}>
-                      {device.bleAddress} · {device.signalStrength} dBm
-                    </Text>
-                  </View>
-                  <Text style={styles.pairChip}>Pair</Text>
-                </TouchableOpacity>
-              ))}
+        </GlassCard>
+        ) : null}
+
+        {panel === 'health' ? (
+        <GlassCard style={styles.card}>
+          <View style={styles.deviceHeader}>
+            <View style={styles.deviceTitleRow}>
+              <FontAwesome5
+                name="heartbeat"
+                size={16}
+                color={healthNeedsAttention ? '#f59e0b' : '#10b981'}
+              />
+              <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Device health</Text>
+            </View>
+            <View
+              style={[
+                styles.badge,
+                {
+                  backgroundColor: healthNeedsAttention ? '#f59e0b22' : '#10b98122',
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.dot,
+                  { backgroundColor: healthNeedsAttention ? '#f59e0b' : '#10b981' },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.badgeText,
+                  { color: healthNeedsAttention ? '#b45309' : '#047857' },
+                ]}
+              >
+                {healthNeedsAttention ? 'Needs check' : 'Healthy'}
+              </Text>
+            </View>
+          </View>
+
+          <View
+            style={[
+              styles.healthStatusCard,
+              {
+                borderColor: healthNeedsAttention
+                  ? 'rgba(245,158,11,0.35)'
+                  : 'rgba(16,185,129,0.28)',
+                backgroundColor: healthNeedsAttention ? '#fffbeb' : '#ecfdf5',
+              },
+            ]}
+          >
+            <View style={styles.healthStatusTop}>
+              <Text
+                style={[
+                  styles.healthStatusTitle,
+                  { color: healthNeedsAttention ? '#b45309' : '#047857' },
+                ]}
+              >
+                {!pairedDevice
+                  ? 'No pillow paired'
+                  : connected
+                    ? 'BLE link is active'
+                    : 'Pillow is paired but offline'}
+              </Text>
+              {pairedDevice ? (
+                <View style={styles.signalBars}>
+                  {[0, 1, 2, 3].map((i) => {
+                    const level =
+                      signalQuality === 'Strong'
+                        ? 4
+                        : signalQuality === 'Fair'
+                          ? 2
+                          : signalQuality === 'Weak'
+                            ? 1
+                            : 0;
+                    const on = i < level;
+                    return (
+                      <View
+                        key={i}
+                        style={[
+                          styles.signalBar,
+                          {
+                            height: 6 + i * 4,
+                            backgroundColor: on
+                              ? healthNeedsAttention
+                                ? '#f59e0b'
+                                : '#10b981'
+                              : 'rgba(20,44,67,0.12)',
+                          },
+                        ]}
+                      />
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+            <Text style={styles.healthStatusHint}>
+              {!pairedDevice
+                ? 'Open Pairing to scan and connect your HAGOKILLER pillow.'
+                : connected && signalQuality !== 'Weak'
+                  ? 'Signal and session look good for overnight monitoring.'
+                  : 'Reconnect from Pairing, or unpair and pair again if the link stays weak.'}
+            </Text>
+          </View>
+
+          {[
+            [
+              'Connection',
+              connected ? 'Connected' : pairedDevice ? 'Offline' : 'Not paired',
+            ],
+            [
+              'Signal',
+              pairedDevice
+                ? `${signalQuality} · ${pairedDevice.signalStrength} dBm`
+                : '—',
+            ],
+            [
+              'Last sync',
+              lastPillowSync ? moment(lastPillowSync).fromNow() : 'No events yet',
+            ],
+            ['Pump', connected ? 'Ready · idle' : 'Offline'],
+            ['Device', pairedDevice?.name || 'None'],
+          ].map(([label, value]) => (
+            <View key={label} style={styles.infoRow}>
+              <Text style={styles.infoLabel}>{label}</Text>
+              <Text style={styles.infoValue}>{value}</Text>
+            </View>
+          ))}
+
+          {pairedDevice && !connected ? (
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.connectButton]}
+                onPress={() => setReconnectVisible(true)}
+                disabled={busy}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <>
+                    <FontAwesome5 name="sync" size={13} color="#ffffff" />
+                    <Text style={styles.connectText}>Reconnect</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
           ) : null}
         </GlassCard>
+        ) : null}
 
+        {panel === 'detection' ? (
         <GlassCard style={styles.card}>
-          <View style={styles.healthHeader}>
+          <View style={styles.deviceHeader}>
             <View style={styles.deviceTitleRow}>
-              <FontAwesome5 name="heartbeat" size={16} color={healthNeedsAttention ? '#f59e0b' : '#10b981'} />
-              <Text style={styles.cardTitle}>Hagokiller device health</Text>
+              <FontAwesome5 name="sliders-h" size={15} color={colors.accentDark} />
+              <Text style={[styles.cardTitle, { marginBottom: 0 }]}>Detection & inflation</Text>
             </View>
-            <View style={[styles.badge, { backgroundColor: healthNeedsAttention ? '#f59e0b22' : '#10b98122' }]}>
-              <View style={[styles.dot, { backgroundColor: healthNeedsAttention ? '#f59e0b' : '#10b981' }]} />
-              <Text style={[styles.badgeText, { color: healthNeedsAttention ? '#b45309' : '#047857' }]}>
-                {healthNeedsAttention ? 'Check connection' : 'Ready'}
+            <View
+              style={[
+                styles.badge,
+                {
+                  backgroundColor: !connected
+                    ? '#94a3b822'
+                    : snoreDetectionEnabled
+                      ? '#10b98122'
+                      : '#ea580c22',
+                },
+              ]}
+            >
+              <View
+                style={[
+                  styles.dot,
+                  {
+                    backgroundColor: !connected
+                      ? '#94a3b8'
+                      : snoreDetectionEnabled
+                        ? '#10b981'
+                        : '#ea580c',
+                  },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.badgeText,
+                  {
+                    color: !connected
+                      ? '#64748b'
+                      : snoreDetectionEnabled
+                        ? '#047857'
+                        : '#c2410c',
+                  },
+                ]}
+              >
+                {!connected ? 'Offline' : snoreDetectionEnabled ? 'Listening' : 'Paused'}
               </Text>
             </View>
           </View>
-          <Text style={styles.cardHint}>Connection diagnostics use values the pillow currently reports. Missing firmware fields are shown honestly.</Text>
-          <View style={styles.healthGrid}>
-            {[
-              ['Signal quality', signalQuality, 'signal'],
-              ['Last synchronization', lastPillowSync ? moment(lastPillowSync).fromNow() : 'No events synced', 'sync'],
-              ['Pump status', connected ? 'Ready · idle' : 'Unavailable offline', 'wind'],
-              ['Battery', 'Not reported by firmware', 'battery-half'],
-              ['Firmware version', 'Not reported by firmware', 'microchip'],
-              ['Diagnostics', connected && signalQuality !== 'Weak' ? 'BLE link looks healthy' : 'Reconnect and move closer', 'stethoscope'],
-            ].map(([label, value, icon]) => (
-              <View key={label} style={styles.healthItem}>
-                <View style={styles.healthIcon}><FontAwesome5 name={icon as any} size={11} color={colors.accentDark} /></View>
-                <View style={styles.healthCopy}>
-                  <Text style={styles.healthLabel}>{label}</Text>
-                  <Text style={styles.healthValue}>{value}</Text>
+
+          <View style={styles.detectionSummary}>
+            <Text style={styles.detectionSummaryTitle}>Pump recipe</Text>
+            <Text style={styles.detectionSummaryValue}>
+              {snoreThreshold} snores in {snoreWindowSec}s → pump {pumpDuration}s
+            </Text>
+            <Text style={styles.detectionSummaryHint}>
+              Adjust below, then tap Save. Nothing is sent until you save.
+            </Text>
+          </View>
+
+          <View style={styles.detectionSection}>
+            <Text style={styles.detectionSectionLabel}>Overnight listening</Text>
+            <SnoreDetectionControls hideTitle />
+          </View>
+
+          <View style={styles.detectionSection}>
+            <Text style={styles.detectionSectionLabel}>Test snore mic</Text>
+            <Text style={styles.detectionSummaryHint}>
+              Works only while overnight listening is paused. Shows live snore / non-snore % and a verdict — does not count sleep events or run the pump.
+            </Text>
+            <MicTestRadar active={micTestActive} preview={micTestPreview} size={compact ? 168 : 200} />
+            <View style={styles.micTestActions}>
+              <TouchableOpacity
+                style={[
+                  styles.micTestButton,
+                  styles.micTestStart,
+                  (!connected || snoreDetectionEnabled || micTestActive || micTestBusy) &&
+                    styles.micTestButtonDisabled,
+                ]}
+                disabled={!connected || snoreDetectionEnabled || micTestActive || micTestBusy}
+                activeOpacity={0.85}
+                onPress={async () => {
+                  setMicTestBusy(true);
+                  try {
+                    await startMicTest();
+                  } catch (error) {
+                    Alert.alert(
+                      'Mic test',
+                      error instanceof Error ? error.message : 'Could not start mic test.',
+                    );
+                  } finally {
+                    setMicTestBusy(false);
+                  }
+                }}
+              >
+                {micTestBusy && !micTestActive ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <>
+                    <FontAwesome5 name="microphone" size={13} color="#ffffff" />
+                    <Text style={styles.micTestButtonText}>Start mic test</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.micTestButton,
+                  styles.micTestStop,
+                  (!connected || !micTestActive || micTestBusy) && styles.micTestButtonDisabled,
+                ]}
+                disabled={!connected || !micTestActive || micTestBusy}
+                activeOpacity={0.85}
+                onPress={async () => {
+                  setMicTestBusy(true);
+                  try {
+                    await stopMicTest();
+                  } catch (error) {
+                    Alert.alert(
+                      'Mic test',
+                      error instanceof Error ? error.message : 'Could not stop mic test.',
+                    );
+                  } finally {
+                    setMicTestBusy(false);
+                  }
+                }}
+              >
+                {micTestBusy && micTestActive ? (
+                  <ActivityIndicator color="#ffffff" size="small" />
+                ) : (
+                  <>
+                    <FontAwesome5 name="stop" size={13} color="#ffffff" />
+                    <Text style={styles.micTestButtonText}>Stop</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+            {!connected ? (
+              <Text style={styles.saveFootnote}>Connect the pillow to test the mic.</Text>
+            ) : snoreDetectionEnabled ? (
+              <Text style={styles.saveFootnote}>
+                Pause overnight listening first — mic test is blocked while detection is on.
+              </Text>
+            ) : null}
+          </View>
+
+          <View style={styles.detectionSection}>
+            <Text style={styles.detectionSectionLabel}>Trigger & pump</Text>
+
+            <View style={styles.paramCard}>
+              <View style={styles.paramRow}>
+                <View style={styles.paramCopy}>
+                  <Text style={styles.paramLabel}>Snore count</Text>
+                  <Text style={styles.paramHint}>Events needed in the window</Text>
                 </View>
+                <Stepper
+                  value={snoreThreshold}
+                  min={1}
+                  max={10}
+                  onChange={(value) => {
+                    markSettingsDirty();
+                    setSnoreThreshold(value);
+                  }}
+                />
               </View>
-            ))}
-          </View>
-        </GlassCard>
 
-        <View style={styles.sectionHeading}>
-          <Text style={styles.sectionEyebrow}>PILLOW RESPONSE</Text>
-          <Text style={styles.sectionTitle}>Detection and inflation</Text>
-        </View>
+              <View style={styles.paramDivider} />
 
-        <GlassCard style={styles.card}>
-          <Text style={styles.cardTitle}>Device Parameter Settings</Text>
-          <Text style={styles.cardHint}>
-            Pump starts when enough snore events land inside the detection window (default: 3 in 15s).
-          </Text>
+              <View style={styles.paramRow}>
+                <View style={styles.paramCopy}>
+                  <Text style={styles.paramLabel}>Detection window</Text>
+                  <Text style={styles.paramHint}>Time to collect {snoreThreshold} snores</Text>
+                </View>
+                <Stepper
+                  value={snoreWindowSec}
+                  min={SNORE_WINDOW_MIN_SEC}
+                  max={SNORE_WINDOW_MAX_SEC}
+                  step={SNORE_WINDOW_STEP_SEC}
+                  format={(value) => `${value}s`}
+                  onChange={(value) => {
+                    markSettingsDirty();
+                    setSnoreWindowSec(value);
+                  }}
+                />
+              </View>
 
-          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
-            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
-              <Text style={styles.settingLabel}>Snoring events to trigger</Text>
-              <Text style={styles.settingHint}>
-                Count of snore detections inside the window (default 3)
-              </Text>
+              <View style={styles.paramDivider} />
+
+              <View style={styles.paramRow}>
+                <View style={styles.paramCopy}>
+                  <Text style={styles.paramLabel}>Max pump time</Text>
+                  <Text style={styles.paramHint}>Inflation after the window fills</Text>
+                </View>
+                <Stepper
+                  value={pumpDuration}
+                  min={PUMP_DURATION_MIN_SEC}
+                  max={PUMP_DURATION_MAX_SEC}
+                  step={PUMP_DURATION_STEP_SEC}
+                  format={(value) => `${value}s`}
+                  onChange={(value) => {
+                    markSettingsDirty();
+                    setPumpDuration(value);
+                  }}
+                />
+              </View>
+
+              <View style={styles.paramDivider} />
+
+              <View style={styles.paramRow}>
+                <View style={styles.paramCopy}>
+                  <Text style={styles.paramLabel}>Mic shift</Text>
+                  <Text style={styles.paramHint}>Lower = longer range (8–16)</Text>
+                </View>
+                <Stepper
+                  value={micShift}
+                  min={8}
+                  max={16}
+                  onChange={(value) => {
+                    markSettingsDirty();
+                    setMicShift(value);
+                  }}
+                />
+              </View>
             </View>
-            <Stepper
-              value={snoreThreshold}
-              min={1}
-              max={10}
-              onChange={(value) => {
-                markSettingsDirty();
-                setSnoreThreshold(value);
-              }}
-            />
-          </View>
-
-          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
-            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
-              <Text style={styles.settingLabel}>Detection window</Text>
-              <Text style={styles.settingHint}>
-                If {snoreThreshold} snores occur within this time, the pump starts (default 15s)
-              </Text>
-            </View>
-            <Stepper
-              value={snoreWindowSec}
-              min={SNORE_WINDOW_MIN_SEC}
-              max={SNORE_WINDOW_MAX_SEC}
-              step={SNORE_WINDOW_STEP_SEC}
-              format={(value) => `${value}s`}
-              onChange={(value) => {
-                markSettingsDirty();
-                setSnoreWindowSec(value);
-              }}
-            />
-          </View>
-
-          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
-            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
-              <Text style={styles.settingLabel}>Pump activation duration</Text>
-              <Text style={styles.settingHint}>Seconds the air pump stays on (5–120)</Text>
-            </View>
-            <Stepper
-              value={pumpDuration}
-              min={PUMP_DURATION_MIN_SEC}
-              max={PUMP_DURATION_MAX_SEC}
-              step={PUMP_DURATION_STEP_SEC}
-              format={(value) => `${value}s`}
-              onChange={(value) => {
-                markSettingsDirty();
-                setPumpDuration(value);
-              }}
-            />
-          </View>
-
-          <View style={[styles.settingRow, compact && styles.settingRowCompact]}>
-            <View style={[styles.settingCopy, compact && styles.settingCopyCompact]}>
-              <Text style={styles.settingLabel}>Mic shift</Text>
-              <Text style={styles.settingHint}>Higher = closer range (15 default, 16 if still far)</Text>
-            </View>
-            <Stepper
-              value={micShift}
-              min={12}
-              max={16}
-              onChange={(value) => {
-                markSettingsDirty();
-                setMicShift(value);
-              }}
-            />
           </View>
 
           {saveMessage ? (
@@ -785,18 +1150,27 @@ export const SettingsScreen = () => {
           <TouchableOpacity
             style={styles.saveButton}
             onPress={() => setConfirmVisible(true)}
+            activeOpacity={0.85}
           >
+            <FontAwesome5
+              name={connected ? 'save' : 'mobile-alt'}
+              size={13}
+              color="#ffffff"
+              style={{ marginRight: 8 }}
+            />
             <Text style={styles.saveButtonText}>
-              {connected ? 'Save Device Settings' : 'Save on Phone (connect pillow to sync)'}
+              {connected ? 'Save to pillow' : 'Save on phone'}
             </Text>
           </TouchableOpacity>
+          {!connected ? (
+            <Text style={styles.saveFootnote}>
+              Saved locally now. Connect the pillow later to sync these values.
+            </Text>
+          ) : null}
         </GlassCard>
+        ) : null}
 
-        <View style={[styles.sectionHeading, styles.safetyHeading]}>
-          <Text style={[styles.sectionEyebrow, styles.safetyEyebrow]}>SAFETY</Text>
-          <Text style={styles.sectionTitle}>Manual pillow controls</Text>
-        </View>
-
+        {panel === 'controls' ? (
         <GlassCard style={styles.card}>
           <Text style={styles.cardTitle}>Prototype safety controls</Text>
           <Text style={styles.cardHint}>
@@ -830,7 +1204,17 @@ export const SettingsScreen = () => {
             <FontAwesome5 name="wind" size={14} color="#ffffff" />
             <Text style={styles.dangerButtonText}>Open solenoid valve (release air)</Text>
           </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.testPumpButton, (!connected || commandBusy) && styles.saveButtonDisabled]}
+            onPress={() => setTestPumpConfirmVisible(true)}
+            disabled={!connected || commandBusy}
+          >
+            <FontAwesome5 name="play-circle" size={14} color="#ffffff" />
+            <Text style={styles.dangerButtonText}>Test air pump ({TEST_PUMP_SECONDS}s)</Text>
+          </TouchableOpacity>
         </GlassCard>
+        ) : null}
         </View>
       </ScrollView>
 
@@ -936,9 +1320,26 @@ export const SettingsScreen = () => {
         onCancel={() => setValveConfirmVisible(false)}
       />
       <ConfirmModal
+        visible={testPumpConfirmVisible}
+        title="Test the air pump?"
+        message={`Runs the air pump for ${TEST_PUMP_SECONDS} seconds to check it works. This adds a little air to the pillow but does not change its inflation cycle. Use Manual stop if you need to cut it short.`}
+        confirmLabel="Run test"
+        onConfirm={() => runPillowCommand('test_pump')}
+        onCancel={() => setTestPumpConfirmVisible(false)}
+      />
+      <ConfirmModal
+        visible={reconnectVisible}
+        title="Reconnect Hagokiller?"
+        message="Restores the Bluetooth link to your paired smart pillow without entering the PIN again."
+        confirmLabel="Reconnect"
+        artwork="ble-reconnect"
+        onConfirm={handleReconnect}
+        onCancel={() => setReconnectVisible(false)}
+      />
+      <ConfirmModal
         visible={disconnectVisible}
         title="Disconnect Hagokiller?"
-        message="Hagosaur will close the BLE link to your smart pillow. You can reconnect later without entering the PIN again."
+        message="Closes the Bluetooth link but keeps the pillow paired. Use Reconnect later without entering the PIN again."
         confirmLabel="Disconnect"
         destructive
         artwork="ble-disconnect"
@@ -946,18 +1347,9 @@ export const SettingsScreen = () => {
         onCancel={() => setDisconnectVisible(false)}
       />
       <ConfirmModal
-        visible={reconnectVisible}
-        title="Reconnect Hagokiller?"
-        message="Hagosaur will restore the BLE link to your paired smart pillow."
-        confirmLabel="Reconnect"
-        artwork="ble-reconnect"
-        onConfirm={handleConnect}
-        onCancel={() => setReconnectVisible(false)}
-      />
-      <ConfirmModal
         visible={unpairVisible}
         title="Unpair this pillow?"
-        message="This forgets the device. You will need the 7-digit PIN to pair again."
+        message="This forgets the device and closes Bluetooth. Scan and enter the 7-digit PIN to pair again."
         confirmLabel="Unpair"
         destructive
         artwork="unplug"
@@ -969,33 +1361,63 @@ export const SettingsScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 40 },
+  container: { flex: 1, backgroundColor: '#ffffff' },
+  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 40 },
+  groupLabel: {
+    color: '#8e8e8e',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 22,
+    marginBottom: 4,
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#efefef',
+  },
+  menuIcon: { width: 28 },
+  menuLabel: { flex: 1, color: colors.text, fontSize: 16, fontWeight: '400' },
+  menuValue: { color: '#8e8e8e', fontSize: 14, marginRight: 8 },
+  detailBack: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  detailTitle: { color: colors.text, fontSize: 18, fontWeight: '700' },
   pageColumn: { width: '100%', maxWidth: 720, alignSelf: 'center' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: colors.textMuted, marginTop: 12, fontWeight: '600' },
-  title: { color: colors.text, fontSize: 28, fontWeight: '800', marginBottom: 6 },
-  subtitle: { color: colors.textMuted, fontSize: 14, marginBottom: 20, lineHeight: 20 },
-  sectionHeading: { marginTop: 4, marginBottom: 9, paddingHorizontal: 2 },
+  title: { color: colors.text, fontSize: 22, fontWeight: '700', marginBottom: 4 },
+  subtitle: { color: colors.textMuted, fontSize: 13, marginBottom: 18, lineHeight: 19 },
+  sectionHeading: { marginTop: 2, marginBottom: 8, paddingHorizontal: 4 },
   sectionEyebrow: {
-    color: colors.accentDark,
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.1,
-    marginBottom: 2,
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+    marginBottom: 0,
+    textTransform: 'uppercase',
   },
-  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
+  sectionTitle: { color: colors.text, fontSize: 15, fontWeight: '700', marginTop: 2 },
   safetyHeading: { marginTop: 6 },
   safetyEyebrow: { color: '#dc2626' },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 20,
+    backgroundColor: '#ffffff',
+    borderWidth: 0,
+    borderRadius: 18,
     padding: 14,
-    marginBottom: 22,
+    marginBottom: 18,
+    shadowColor: '#142c43',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
   },
   profileCopy: { flex: 1, paddingHorizontal: 14 },
   profileName: { color: colors.text, fontSize: 17, fontWeight: '800', marginBottom: 2 },
@@ -1040,6 +1462,20 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(14, 165, 233, 0.35)',
   },
   testButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
+  alarmPlayButton: {
+    marginTop: 10,
+  },
+  alarmStopButton: {
+    marginTop: 10,
+    backgroundColor: '#b91c1c',
+    borderColor: '#991b1b',
+  },
+  alarmTestHint: {
+    marginTop: 8,
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 16,
+  },
   modelProgressWrap: { marginBottom: 14 },
   modelProgressTrack: {
     height: 8,
@@ -1063,7 +1499,58 @@ const styles = StyleSheet.create({
   modelOptionMeta: { color: colors.textMuted, fontSize: 9, lineHeight: 14, marginTop: 4 },
   modelRepairSuccess: { color: '#047857', fontSize: 12, lineHeight: 18, marginBottom: 12 },
   modelRepairError: { color: '#b91c1c', fontSize: 12, lineHeight: 18, marginBottom: 12 },
-  card: { padding: 16, marginBottom: 22, borderRadius: 16 },
+  card: {
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 18,
+    borderWidth: 0,
+    backgroundColor: '#ffffff',
+    shadowColor: '#142c43',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  listLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    marginTop: 4,
+    paddingHorizontal: 4,
+  },
+  listCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    marginBottom: 8,
+    overflow: 'hidden',
+    shadowColor: '#142c43',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  listIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f3f7fb',
+    marginRight: 12,
+  },
+  listCopy: { flex: 1, paddingRight: 8 },
+  listTitle: { color: colors.text, fontSize: 15, fontWeight: '600', marginBottom: 2 },
+  listHint: { color: colors.textMuted, fontSize: 12, fontWeight: '500' },
+  listDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#e7edf2', marginLeft: 60 },
   cardTitle: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
   cardHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginBottom: 16 },
   deviceHeader: {
@@ -1093,13 +1580,41 @@ const styles = StyleSheet.create({
   },
   infoLabel: { color: colors.textMuted, fontSize: 13 },
   infoValue: { color: colors.textSecondary, fontSize: 13, fontWeight: '600', maxWidth: '62%', textAlign: 'right' },
-  healthHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  healthGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  healthItem: { width: '48%', minHeight: 74, flexDirection: 'row', alignItems: 'flex-start', padding: 10, borderRadius: 12, backgroundColor: colors.backgroundSoft, borderWidth: 1, borderColor: colors.border },
-  healthIcon: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.accentSoft, marginRight: 8 },
-  healthCopy: { flex: 1 },
-  healthLabel: { color: colors.textMuted, fontSize: 8, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },
-  healthValue: { color: colors.textSecondary, fontSize: 10, lineHeight: 14, fontWeight: '700', marginTop: 3 },
+  healthStatusCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 8,
+  },
+  healthStatusTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 6,
+  },
+  healthStatusTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  healthStatusHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '500',
+  },
+  signalBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 3,
+    height: 18,
+  },
+  signalBar: {
+    width: 4,
+    borderRadius: 2,
+  },
   actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 },
   actionButton: {
     flex: 1,
@@ -1150,10 +1665,116 @@ const styles = StyleSheet.create({
   settingCopyCompact: { flex: 0, paddingRight: 0 },
   settingLabel: { color: colors.text, fontSize: 13, fontWeight: '700', marginBottom: 3 },
   settingHint: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
-  stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 10 },
+  detectionSummary: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(14,165,233,0.22)',
+    backgroundColor: colors.backgroundSoft,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  detectionSummaryTitle: {
+    color: colors.accentDark,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    marginBottom: 4,
+  },
+  detectionSummaryValue: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  detectionSummaryHint: {
+    color: colors.textMuted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+  },
+  detectionSection: {
+    marginBottom: 18,
+  },
+  detectionSectionLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  micTestActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+  },
+  micTestButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+  },
+  micTestStart: {
+    backgroundColor: colors.accentDark,
+  },
+  micTestStop: {
+    backgroundColor: '#b91c1c',
+  },
+  micTestButtonDisabled: {
+    opacity: 0.45,
+  },
+  micTestButtonText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  paramCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceMuted,
+    overflow: 'hidden',
+  },
+  paramRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  paramCopy: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 4,
+  },
+  paramLabel: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  paramHint: {
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '500',
+  },
+  paramDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginLeft: 12,
+  },
+  stepper: { flexDirection: 'row', alignItems: 'center', alignSelf: 'center', gap: 8 },
   stepButton: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     backgroundColor: colors.backgroundMuted,
     borderWidth: 1,
@@ -1164,17 +1785,28 @@ const styles = StyleSheet.create({
   },
   stepButtonPressed: { backgroundColor: colors.accentSoft },
   stepText: { color: colors.accent, fontSize: 18, fontWeight: '700' },
-  stepValue: { color: colors.text, fontSize: 16, fontWeight: '700', minWidth: 48, textAlign: 'center' },
+  stepValue: { color: colors.text, fontSize: 15, fontWeight: '800', minWidth: 44, textAlign: 'center' },
   saveButton: {
-    backgroundColor: 'rgba(14, 165, 233, 0.9)',
+    backgroundColor: 'rgba(14, 165, 233, 0.95)',
     borderRadius: 14,
     paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
     borderWidth: 1,
     borderColor: 'rgba(14, 165, 233, 0.35)',
   },
   saveButtonDisabled: { opacity: 0.45 },
   saveButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
+  saveFootnote: {
+    marginTop: 8,
+    color: colors.textMuted,
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   saveMessage: { color: '#10b981', fontSize: 12, marginBottom: 10, fontWeight: '600' },
   saveError: { color: '#fca5a5' },
   dangerButton: {
@@ -1195,6 +1827,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 10,
+  },
+  testPumpButton: {
+    backgroundColor: '#10b981',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
   },
   dangerButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
   pinOverlay: {
