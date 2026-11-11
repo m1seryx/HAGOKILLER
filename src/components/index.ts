@@ -13,5 +13,7 @@ export { BleRadarAnimation } from './BleRadarAnimation';
 export { MicTestRadar } from './MicTestRadar';
 export { ProfileAvatar } from './ProfileAvatar';
 export { NightDetailCard } from './NightDetailCard';
+export { SnoreAnalyticsDashboard } from './SnoreAnalyticsDashboard';
 export { LogDetailSheet, SleepEventMeters } from './LogDetailSheet';
 export type { LogItem, LogBadge } from './LogDetailSheet';
+export { ImportDataModal } from './ImportDataModal';

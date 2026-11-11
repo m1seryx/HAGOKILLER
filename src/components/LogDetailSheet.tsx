@@ -153,9 +153,6 @@ function eventRows(event: SleepEvent): DetailRow[] {
   ];
   if (event.snoreStreak != null) rows.push({ label: 'Snores in window', value: String(event.snoreStreak) });
   rows.push({ label: 'Pillow inflated', value: event.interventionTriggered ? 'Yes' : 'No' });
-  if (event.interventionTriggered) {
-    rows.push({ label: 'Pump limit', value: `${event.interventionDuration}s max` });
-  }
   if (event.maxElevationHold) rows.push({ label: 'Max elevation alert', value: 'Yes' });
   if (event.source) rows.push({ label: 'Source', value: SOURCE_NAMES[event.source] ?? event.source });
   if (event.eventCode != null) {

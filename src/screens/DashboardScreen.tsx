@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import { getSeverityColor, getSeverityLabel, getMoodStatus } from '../utils/reco
 import { SnorePatternsChart } from '../components/SnorePatternsChart';
 import { KeySleepMetricsChart } from '../components/KeySleepMetricsChart';
 import { LiveSnoreMonitor } from '../components/LiveSnoreMonitor';
+import { SnoreAnalyticsDashboard } from '../components/SnoreAnalyticsDashboard';
 import { StatsFilter, TimePeriod, DateRange } from '../components/StatsFilter';
 import { GlassCard } from '../components/GlassCard';
 import { ProfileAvatar } from '../components/ProfileAvatar';
@@ -35,6 +36,7 @@ import { colors } from '../constants/theme';
 import { loadActionFeedback, loadDailyActivityCheckIns } from '../services/userStorage';
 import { buildWeeklyRecap } from '../utils/wellnessAnalytics';
 import { isOnDeviceModelDownloaded, requestOnDeviceAssessmentAdvice } from '../services/onDeviceAssessment';
+import { useFocusEffect } from '@react-navigation/native';
 
 interface DashboardScreenProps {
   userName: string;
@@ -74,12 +76,26 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
 
   useEffect(() => {
     loadData();
-    return bleService.subscribeEvents((event) => {
+    const unsubEvents = bleService.subscribeEvents((event) => {
       setDashboardData((current) =>
         calculateDashboardData([event, ...(current?.allData ?? [])]),
       );
     });
+    const unsubReload = (bleService as any).subscribeReload?.(() => {
+      loadData(false);
+    });
+    return () => {
+      unsubEvents();
+      unsubReload?.();
+    };
   }, []);
+
+  // Re-fetch when the user navigates to this tab (e.g. after clearing data from Settings)
+  useFocusEffect(
+    useCallback(() => {
+      loadData(false);
+    }, [])
+  );
 
   const loadData = async (showFullScreenLoader = true) => {
     try {
@@ -551,6 +567,14 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ userName, user
           <KeySleepMetricsChart events={dashboardData.allData} />
         </View>
 
+        <View style={styles.sectionHeadingRow}>
+          <Text style={styles.sectionTitle}>Snore analytics</Text>
+          <Text style={styles.sectionHint}>4-Tier visualization</Text>
+        </View>
+        <View style={styles.sectionPadding}>
+          <SnoreAnalyticsDashboard events={dashboardData.allData} />
+        </View>
+
         <View style={styles.sectionPadding}>
           <SnorePatternsChart weeklyData={chartData} chartType="line" title={chartTitle} />
         </View>
@@ -938,8 +962,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     gap: 12,
   },
-  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '800' },
-  sectionHint: { color: colors.textMuted, fontSize: 11, fontWeight: '600' },
+  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '600' },
+  sectionHint: { color: colors.textMuted, fontSize: 11, fontWeight: '400' },
   moodSectionLabel: {
     fontSize: 12,
     fontWeight: '700',

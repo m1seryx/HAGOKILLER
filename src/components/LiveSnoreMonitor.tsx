@@ -6,6 +6,11 @@ import { SleepEvent } from '../types';
 import { bleService } from '../services/bleService';
 import { useDevice } from '../context/DeviceContext';
 import { colors } from '../constants/theme';
+import {
+  getConsecutiveLevelInfo,
+  getRmsLevelInfo,
+  getSnoreLengthInfo,
+} from '../utils/snoreClassifications';
 
 const WINDOW_SEC = 60;
 const TICK_MS = 500;
@@ -88,6 +93,8 @@ export const LiveSnoreMonitor: React.FC<LiveSnoreMonitorProps> = ({
   const [samples, setSamples] = useState<Sample[]>(() => emptySlots(Date.now()));
   const [chartWidth, setChartWidth] = useState(0);
   const [lastRms, setLastRms] = useState(0);
+  const [lastStreak, setLastStreak] = useState(1);
+  const [lastDuration, setLastDuration] = useState(0);
   const [snoresInWindow, setSnoresInWindow] = useState(0);
   const [pulseOn, setPulseOn] = useState(true);
   const pendingRms = useRef(0);
@@ -96,6 +103,8 @@ export const LiveSnoreMonitor: React.FC<LiveSnoreMonitorProps> = ({
     if (!connected) {
       pendingRms.current = 0;
       setLastRms(0);
+      setLastStreak(1);
+      setLastDuration(0);
       setSnoresInWindow(0);
       setSamples(emptySlots(Date.now()));
       return;
@@ -106,6 +115,8 @@ export const LiveSnoreMonitor: React.FC<LiveSnoreMonitorProps> = ({
       const rms = rmsFromEvent(event);
       pendingRms.current = Math.max(pendingRms.current, rms);
       setLastRms(rms);
+      setLastStreak(event.snoreStreak ?? 1);
+      setLastDuration(event.duration || 0);
     });
 
     const timer = setInterval(() => {
@@ -146,6 +157,10 @@ export const LiveSnoreMonitor: React.FC<LiveSnoreMonitorProps> = ({
     if (!connected) return '—';
     return (snoresInWindow / WINDOW_SEC).toFixed(2);
   }, [connected, snoresInWindow]);
+
+  const consecutiveInfo = useMemo(() => getConsecutiveLevelInfo(lastStreak), [lastStreak]);
+  const lengthInfo = useMemo(() => getSnoreLengthInfo(lastDuration), [lastDuration]);
+  const rmsInfo = useMemo(() => getRmsLevelInfo(lastRms), [lastRms]);
 
   const gridLines = useMemo(() => {
     if (chartWidth <= 0) return { h: [] as number[], v: [] as number[] };
@@ -286,6 +301,47 @@ export const LiveSnoreMonitor: React.FC<LiveSnoreMonitorProps> = ({
         </View>
       </View>
 
+      <View style={styles.liveClassifiersRow}>
+        <View style={styles.classifierPill}>
+          <Text style={styles.classifierLabel}>CONSECUTIVE</Text>
+          <View style={styles.classifierValueRow}>
+            <View style={[styles.classifierDot, { backgroundColor: consecutiveInfo.color }]} />
+            <Text style={[styles.classifierValue, { color: consecutiveInfo.color }]}>
+              {connected ? `${lastStreak} (${consecutiveInfo.level})` : '—'}
+            </Text>
+          </View>
+          <Text style={styles.classifierSub} numberOfLines={1}>
+            {connected ? (lastStreak >= 3 ? 'Inflation trigger' : `${lastStreak} in streak`) : 'Offline'}
+          </Text>
+        </View>
+
+        <View style={styles.classifierPill}>
+          <Text style={styles.classifierLabel}>SNORE LENGTH</Text>
+          <View style={styles.classifierValueRow}>
+            <View style={[styles.classifierDot, { backgroundColor: lengthInfo.color }]} />
+            <Text style={[styles.classifierValue, { color: lengthInfo.color }]}>
+              {connected ? `${lastDuration > 0 ? `${lastDuration}s ` : ''}${lengthInfo.level}` : '—'}
+            </Text>
+          </View>
+          <Text style={styles.classifierSub} numberOfLines={1}>
+            {connected ? lengthInfo.shortLabel : 'Offline'}
+          </Text>
+        </View>
+
+        <View style={styles.classifierPill}>
+          <Text style={styles.classifierLabel}>RMS ZONE</Text>
+          <View style={styles.classifierValueRow}>
+            <View style={[styles.classifierDot, { backgroundColor: rmsInfo.color }]} />
+            <Text style={[styles.classifierValue, { color: rmsInfo.color }]}>
+              {connected ? rmsInfo.level : '—'}
+            </Text>
+          </View>
+          <Text style={styles.classifierSub} numberOfLines={1}>
+            {connected ? `${lastRms} RMS` : 'Offline'}
+          </Text>
+        </View>
+      </View>
+
       <View style={styles.legend}>
         <View style={styles.legendItem}>
           <View style={[styles.legendColor, { backgroundColor: TRACE }]} />
@@ -332,13 +388,13 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: '#7dd3fc',
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '500',
     letterSpacing: 1.1,
     marginBottom: 2,
   },
   title: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '600',
     color: colors.text,
   },
   livePill: {
@@ -381,14 +437,14 @@ const styles = StyleSheet.create({
   summaryLabel: {
     color: colors.textMuted,
     fontSize: 9,
-    fontWeight: '800',
+    fontWeight: '500',
     letterSpacing: 0.7,
     marginBottom: 2,
   },
   summaryValue: {
     color: colors.text,
     fontSize: 20,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: -0.4,
   },
   summaryUnit: {
@@ -419,7 +475,7 @@ const styles = StyleSheet.create({
   scaleText: {
     color: colors.textMuted,
     fontSize: 8,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   axisRow: {
     position: 'absolute',
@@ -433,22 +489,63 @@ const styles = StyleSheet.create({
   axisText: {
     color: colors.textMuted,
     fontSize: 9,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   axisCenter: {
     color: 'rgba(82, 103, 123, 0.45)',
     fontSize: 8,
-    fontWeight: '800',
+    fontWeight: '600',
     letterSpacing: 1,
   },
+  liveClassifiersRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  classifierPill: {
+    flex: 1,
+    backgroundColor: '#f8fbff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
+  classifierLabel: {
+    color: colors.textMuted,
+    fontSize: 8,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    marginBottom: 2,
+  },
+  classifierValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 2,
+  },
+  classifierDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  classifierValue: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  classifierSub: {
+    color: colors.textSecondary,
+    fontSize: 9,
+    fontWeight: '400',
+  },
   legend: {
-    marginTop: 12,
+    marginTop: 10,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
   legendColor: { width: 10, height: 10, borderRadius: 3 },
-  legendLabel: { color: colors.textSecondary, fontSize: 11, fontWeight: '600' },
-  legendHelp: { color: colors.textMuted, fontSize: 10, fontWeight: '600' },
+  legendLabel: { color: colors.textSecondary, fontSize: 11, fontWeight: '500' },
+  legendHelp: { color: colors.textMuted, fontSize: 10, fontWeight: '500' },
 });

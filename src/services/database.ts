@@ -561,6 +561,16 @@ export async function dbLoadActionFeedback(): Promise<ActionFeedbackRecord[]> {
   } catch { return []; }
 }
 
+export async function dbSetKv(key: string, value: string): Promise<void> {
+  const db = await initDatabase();
+  await setKv(db, key, value);
+}
+
+export async function dbGetKv(key: string): Promise<string | null> {
+  const db = await initDatabase();
+  return getKv(db, key);
+}
+
 export async function dbClearUserData(): Promise<void> {
   const db = await initDatabase();
   await db.execAsync(`
@@ -568,6 +578,6 @@ export async function dbClearUserData(): Promise<void> {
     DELETE FROM paired_device;
     DELETE FROM device_settings;
     DELETE FROM sleep_events;
-    DELETE FROM kv WHERE key != 'migrated_async_storage';
+    DELETE FROM kv WHERE key NOT IN ('migrated_async_storage', 'app_data_cleared');
   `);
 }

@@ -25,6 +25,8 @@ import {
   dbLoadWellnessPlans,
   dbSaveActionFeedback,
   dbLoadActionFeedback,
+  dbSetKv,
+  dbGetKv,
   StoredPairedDevice,
   StoredDeviceSettings,
 } from './database';
@@ -65,8 +67,18 @@ export const deleteStoredEvent = (eventId: string) => dbDeleteSleepEvent(eventId
 export const clearStoredEvents = () => dbClearSleepEvents();
 
 export const clearUserData = async () => {
+  await saveIsDataCleared(true);
   await dbClearUserData();
   await clearCalibrationLog();
+};
+
+export const loadIsDataCleared = async (): Promise<boolean> => {
+  const val = await dbGetKv('app_data_cleared');
+  return val === 'true';
+};
+
+export const saveIsDataCleared = async (cleared: boolean): Promise<void> => {
+  await dbSetKv('app_data_cleared', cleared ? 'true' : 'false');
 };
 
 export const saveDailyActivityCheckIn = (checkIn: DailyActivityCheckIn) =>

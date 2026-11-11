@@ -1,9 +1,10 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, useWindowDimensions, Image, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { SleepEvent } from '../types';
 import { bleService } from '../services/bleService';
 import { LogDetailSheet, LogBadge, LogItem, SleepEventMeters } from '../components/LogDetailSheet';
@@ -79,11 +80,31 @@ export const LogsScreen = () => {
       if (!cancelled) setEvents((current) => [event, ...current]);
     });
 
+    const unsubReload = (bleService as any).subscribeReload?.(() => {
+      if (!cancelled) {
+        bleService
+          .fetchSleepEvents()
+          .then((next) => { if (!cancelled) setEvents(next); })
+          .catch(() => undefined);
+      }
+    });
+
     return () => {
       cancelled = true;
       unsubscribe();
+      unsubReload?.();
     };
   }, []);
+
+  // Re-fetch when user navigates to this tab (e.g. after clearing data from Settings)
+  useFocusEffect(
+    useCallback(() => {
+      bleService
+        .fetchSleepEvents()
+        .then((next) => setEvents(next))
+        .catch(() => undefined);
+    }, [])
+  );
 
   useEffect(() => {
     setPage(0);
@@ -185,7 +206,6 @@ export const LogsScreen = () => {
             </View>
           </View>
           <Text style={styles.logDate}>{moment(item.timestamp).format('ddd, MMM D · h:mm A')}</Text>
-          {pumpLabel ? <Text style={styles.pumpCaption}>{pumpLabel}</Text> : null}
           <SleepEventMeters event={item} />
         </View>
       </TouchableOpacity>

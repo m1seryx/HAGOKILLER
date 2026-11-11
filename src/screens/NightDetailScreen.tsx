@@ -210,9 +210,18 @@ export const NightDetailScreen = () => {
     }, [load]),
   );
 
-  useEffect(() => bleService.subscribeEvents((event) => {
-    setEvents((current) => [event, ...current.filter((item) => item.id !== event.id)]);
-  }), []);
+  useEffect(() => {
+    const unsubEvents = bleService.subscribeEvents((event) => {
+      setEvents((current) => [event, ...current.filter((item) => item.id !== event.id)]);
+    });
+    const unsubReload = (bleService as any).subscribeReload?.(() => {
+      load().catch(() => undefined);
+    });
+    return () => {
+      unsubEvents();
+      unsubReload?.();
+    };
+  }, [load]);
 
   const nightKeys = useMemo(() => listRecentNightKeys(events, 7), [events]);
   const activeNightKey = nightKeys.includes(selectedNightKey) ? selectedNightKey : nightKeys[0];

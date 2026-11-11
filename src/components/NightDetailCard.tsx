@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,12 @@ import { NightDetail, SleepEvent } from '../types';
 import { getSeverityColor } from '../utils/recommendations';
 import { formatPeakWindow, getNightLabel } from '../utils/statsCalculator';
 import { analyzeInterventionOutcomes } from '../utils/wellnessAnalytics';
+import {
+  getConsecutiveLevelInfo,
+  getSnoreLengthInfo,
+  getRmsLevelInfo,
+} from '../utils/snoreClassifications';
+import { LogDetailSheet, LogItem } from './LogDetailSheet';
 
 interface NightDetailCardProps {
   night: NightDetail;
@@ -31,7 +37,30 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
   events,
 }) => {
   const { width } = useWindowDimensions();
+  const [selectedLogItem, setSelectedLogItem] = useState<LogItem | null>(null);
+  const [showAllEvents, setShowAllEvents] = useState(false);
+  const [expandedEventIds, setExpandedEventIds] = useState<Set<string>>(new Set());
   const severityColor = getSeverityColor(night.severity);
+
+  const toggleExpand = (id: string) => {
+    setExpandedEventIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleAllExpanded = () => {
+    if (expandedEventIds.size === eventTimeline.length) {
+      setExpandedEventIds(new Set());
+    } else {
+      setExpandedEventIds(new Set(eventTimeline.map((e) => e.id)));
+    }
+  };
 
   // Full sleep-night axis (18:00 → 11:00). Hiding early evening made live data look missing.
   const visibleHours = useMemo(() => night.hourly, [night.hourly]);
@@ -267,33 +296,178 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
             </Text>
           </View>
 
-          <Text style={styles.eventTimelineTitle}>Event and intervention timeline</Text>
+          <View style={styles.eventTimelineHeader}>
+            <Text style={styles.eventTimelineTitle}>Night detail event logs & timeline</Text>
+            {eventTimeline.length > 0 ? (
+              <TouchableOpacity
+                style={styles.expandAllButton}
+                onPress={toggleAllExpanded}
+                activeOpacity={0.7}
+              >
+                <FontAwesome5
+                  name={expandedEventIds.size === eventTimeline.length ? 'compress-arrows-alt' : 'expand-arrows-alt'}
+                  size={9}
+                  color="#38bdf8"
+                />
+                <Text style={styles.expandAllText}>
+                  {expandedEventIds.size === eventTimeline.length ? 'Collapse all' : 'Expand all'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
           <View style={styles.eventTimeline}>
-            {eventTimeline.slice(0, 16).map((event, index) => {
+            {(showAllEvents ? eventTimeline : eventTimeline.slice(0, 10)).map((event, index) => {
+              const isExpanded = expandedEventIds.has(event.id);
               const outcome = outcomesByEvent.get(event.id);
+              const consecutiveInfo = getConsecutiveLevelInfo(event.snoreStreak ?? 1);
+              const lengthInfo = getSnoreLengthInfo(event.duration || 0);
+              const rmsInfo = getRmsLevelInfo(event.rms ?? 0);
+
               return (
-                <View key={event.id} style={styles.eventRow}>
+                <TouchableOpacity
+                  key={event.id}
+                  style={styles.eventRow}
+                  activeOpacity={0.75}
+                  onPress={() => toggleExpand(event.id)}
+                >
                   <View style={styles.eventRail}>
                     <View style={[styles.eventDot, event.interventionTriggered && styles.eventDotIntervention]} />
-                    {index < Math.min(eventTimeline.length, 16) - 1 ? <View style={styles.eventLine} /> : null}
-                  </View>
-                  <View style={styles.eventContent}>
-                    <View style={styles.eventHeadingRow}>
-                      <Text style={styles.eventTime}>{moment(event.timestamp).format('h:mm A')}</Text>
-                      <Text style={styles.eventMeta}>{event.duration}s · {event.severity}</Text>
-                    </View>
-                    <Text style={styles.eventName}>
-                      {event.interventionTriggered ? `Snore detected · pillow inflated ${event.interventionDuration}s` : 'Snore detected'}
-                    </Text>
-                    {outcome ? (
-                      <Text style={[styles.eventOutcome, outcome.appearedEffective ? styles.eventOutcomeGood : styles.eventOutcomeWatch]}>
-                        {outcome.appearedEffective ? 'Appeared effective · ' : 'Keep monitoring · '}{outcome.explanation}
-                      </Text>
+                    {index < (showAllEvents ? eventTimeline.length : Math.min(eventTimeline.length, 10)) - 1 ? (
+                      <View style={styles.eventLine} />
                     ) : null}
                   </View>
-                </View>
+
+                  <View style={[styles.eventContent, event.interventionTriggered && styles.eventContentIntervention]}>
+                    <View style={styles.eventHeadingRow}>
+                      <View style={styles.eventIndexBadge}>
+                        <Text style={styles.eventIndexText}>Snore #{index + 1}</Text>
+                      </View>
+                      <Text style={styles.eventTime}>{moment(event.timestamp).format('h:mm:ss A')}</Text>
+
+                      {!isExpanded ? (
+                        <View style={styles.compactChipsRow}>
+                          <Text style={[styles.compactChipText, { color: consecutiveInfo.color }]}>
+                            {event.snoreStreak ?? 1} streak
+                          </Text>
+                          <Text style={[styles.compactChipText, { color: lengthInfo.color }]}>
+                            {event.duration}s
+                          </Text>
+                          <Text style={[styles.compactChipText, { color: rmsInfo.color }]}>
+                            {Math.round(event.rms ?? 0)} RMS
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {event.interventionTriggered ? (
+                        <View style={styles.inflatedPill}>
+                          <FontAwesome5 name="wind" size={8} color="#34d399" />
+                          <Text style={styles.inflatedText}>Pillow inflated</Text>
+                        </View>
+                      ) : null}
+
+                      <View style={styles.chevronWrap}>
+                        <FontAwesome5 name={isExpanded ? 'chevron-up' : 'chevron-down'} size={9} color="#7dd3fc" />
+                      </View>
+                    </View>
+
+                    {/* Expandable 4-Metrics Information & Outcome */}
+                    {isExpanded ? (
+                      <View style={styles.expandedContent}>
+                        {/* 4 Classification Metrics Grid */}
+                        <View style={styles.fourMetricsGrid}>
+                          {/* Metric 1: Snore Detection Order */}
+                          <View style={styles.metricCell}>
+                            <Text style={styles.metricLabel}>1. SNORE COUNT</Text>
+                            <Text style={styles.metricValue}>#{index + 1} of {eventTimeline.length}</Text>
+                            <Text style={styles.metricSub}>cumulative</Text>
+                          </View>
+
+                          {/* Metric 2: Consecutive Level */}
+                          <View style={styles.metricCell}>
+                            <Text style={styles.metricLabel}>2. CONSECUTIVE</Text>
+                            <View style={styles.metricValueRow}>
+                              <Text style={[styles.metricValue, { color: consecutiveInfo.color }]}>
+                                {event.snoreStreak ?? 1} Snore{(event.snoreStreak ?? 1) > 1 ? 's' : ''}
+                              </Text>
+                              <View style={[styles.miniTierPill, { backgroundColor: consecutiveInfo.bg, borderColor: consecutiveInfo.border }]}>
+                                <Text style={[styles.miniTierText, { color: consecutiveInfo.color }]}>{consecutiveInfo.level.toUpperCase()}</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.metricSub} numberOfLines={1}>
+                              {consecutiveInfo.thresholdMet ? 'Inflation triggered' : 'Rolling streak'}
+                            </Text>
+                          </View>
+
+                          {/* Metric 3: Snore Length */}
+                          <View style={styles.metricCell}>
+                            <Text style={styles.metricLabel}>3. SNORE LENGTH</Text>
+                            <View style={styles.metricValueRow}>
+                              <Text style={[styles.metricValue, { color: lengthInfo.color }]}>
+                                {event.duration}s
+                              </Text>
+                              <View style={[styles.miniTierPill, { backgroundColor: lengthInfo.bg, borderColor: lengthInfo.border }]}>
+                                <Text style={[styles.miniTierText, { color: lengthInfo.color }]}>{lengthInfo.level.toUpperCase()}</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.metricSub} numberOfLines={1}>{lengthInfo.category}</Text>
+                          </View>
+
+                          {/* Metric 4: RMS Sound Intensity */}
+                          <View style={styles.metricCell}>
+                            <Text style={styles.metricLabel}>4. RMS SOUND</Text>
+                            <View style={styles.metricValueRow}>
+                              <Text style={[styles.metricValue, { color: rmsInfo.color }]}>
+                                {Math.round(event.rms ?? 0)} RMS
+                              </Text>
+                              <View style={[styles.miniTierPill, { backgroundColor: rmsInfo.bg, borderColor: rmsInfo.border }]}>
+                                <Text style={[styles.miniTierText, { color: rmsInfo.color }]}>{rmsInfo.level.toUpperCase()}</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.metricSub} numberOfLines={1}>{rmsInfo.category}</Text>
+                          </View>
+                        </View>
+
+                        {outcome ? (
+                          <View style={styles.outcomeRow}>
+                            <FontAwesome5
+                              name={outcome.appearedEffective ? 'check-circle' : 'info-circle'}
+                              size={10}
+                              color={outcome.appearedEffective ? '#34d399' : '#fbbf24'}
+                            />
+                            <Text style={[styles.eventOutcome, outcome.appearedEffective ? styles.eventOutcomeGood : styles.eventOutcomeWatch]}>
+                              {outcome.appearedEffective ? 'Appeared effective · ' : 'Keep monitoring · '}
+                              {outcome.explanation}
+                            </Text>
+                          </View>
+                        ) : null}
+
+                        <TouchableOpacity
+                          style={styles.sheetButton}
+                          onPress={() => setSelectedLogItem({ kind: 'event', key: event.id, timestamp: event.timestamp, event })}
+                          activeOpacity={0.7}
+                        >
+                          <FontAwesome5 name="file-alt" size={9} color="#38bdf8" />
+                          <Text style={styles.sheetButtonText}>View full night log record →</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
               );
             })}
+
+            {eventTimeline.length > 10 ? (
+              <TouchableOpacity
+                style={styles.showMoreButton}
+                onPress={() => setShowAllEvents(!showAllEvents)}
+              >
+                <FontAwesome5 name={showAllEvents ? 'chevron-up' : 'chevron-down'} size={11} color="#38bdf8" />
+                <Text style={styles.showMoreText}>
+                  {showAllEvents ? 'Show fewer logs' : `Show all ${eventTimeline.length} night logs`}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {night.firstSnoreAt && night.lastSnoreAt ? (
@@ -304,6 +478,11 @@ export const NightDetailCard: React.FC<NightDetailCardProps> = ({
           ) : null}
         </>
       )}
+
+      <LogDetailSheet
+        item={selectedLogItem}
+        onClose={() => setSelectedLogItem(null)}
+      />
     </View>
   );
 };
@@ -325,7 +504,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#eef7ff',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -351,7 +530,7 @@ const styles = StyleSheet.create({
     paddingVertical: 28,
     gap: 8,
   },
-  emptyTitle: { fontSize: 14, fontWeight: '700', color: '#eef7ff' },
+  emptyTitle: { fontSize: 14, fontWeight: '600', color: '#eef7ff' },
   emptyHint: { fontSize: 12, color: '#a9bfdf', textAlign: 'center' },
   peakCard: {
     flexDirection: 'row',
@@ -379,7 +558,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: 2,
   },
-  peakValue: { fontSize: 18, fontWeight: '800' },
+  peakValue: { fontSize: 18, fontWeight: '600' },
   peakMeta: { fontSize: 12, color: '#a9bfdf', marginTop: 2 },
   topPeaksRow: { gap: 8, marginBottom: 14 },
   topPeakPill: {
@@ -391,12 +570,12 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#102342',
   },
-  topPeakRank: { fontSize: 11, fontWeight: '800', color: '#7dd3fc', width: 22 },
+  topPeakRank: { fontSize: 11, fontWeight: '600', color: '#7dd3fc', width: 22 },
   topPeakTime: { flex: 1, fontSize: 12, fontWeight: '600', color: '#eef7ff' },
-  topPeakCount: { fontSize: 12, fontWeight: '700', color: '#a9bfdf' },
+  topPeakCount: { fontSize: 12, fontWeight: '600', color: '#a9bfdf' },
   timelineLabel: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#a9bfdf',
     marginBottom: 8,
     textTransform: 'uppercase',
@@ -433,7 +612,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#294a78',
   },
   statItem: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 16, fontWeight: '800', color: '#eef7ff' },
+  statValue: { fontSize: 16, fontWeight: '600', color: '#eef7ff' },
   statLabel: { fontSize: 11, color: '#a9bfdf', marginTop: 2 },
   statDivider: { width: 1, height: 28, backgroundColor: '#294a78' },
   spanText: {
@@ -446,26 +625,214 @@ const styles = StyleSheet.create({
   effectivenessHeader: { flexDirection: 'row', alignItems: 'center' },
   effectivenessIcon: { width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(52, 211, 153, 0.12)', marginRight: 10 },
   effectivenessCopy: { flex: 1 },
-  effectivenessEyebrow: { color: '#6ee7b7', fontSize: 9, fontWeight: '800', letterSpacing: 0.8 },
-  effectivenessTitle: { color: '#eef7ff', fontSize: 13, lineHeight: 18, fontWeight: '800', marginTop: 2 },
+  effectivenessEyebrow: { color: '#6ee7b7', fontSize: 9, fontWeight: '500', letterSpacing: 0.8 },
+  effectivenessTitle: { color: '#eef7ff', fontSize: 13, lineHeight: 18, fontWeight: '600', marginTop: 2 },
   effectivenessMetrics: { flexDirection: 'row', marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#294a78' },
   effectivenessMetric: { flex: 1, alignItems: 'center', paddingHorizontal: 3 },
-  effectivenessValue: { color: '#eef7ff', fontSize: 14, fontWeight: '900' },
+  effectivenessValue: { color: '#eef7ff', fontSize: 14, fontWeight: '600' },
   effectivenessLabel: { color: '#8fa8c7', fontSize: 8, marginTop: 3, textAlign: 'center' },
   effectivenessNote: { color: '#7890aa', fontSize: 9, lineHeight: 14, marginTop: 12 },
-  eventTimelineTitle: { color: '#a9bfdf', fontSize: 11, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase', marginTop: 20, marginBottom: 12 },
+  eventTimelineHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  eventTimelineTitle: { color: '#a9bfdf', fontSize: 11, fontWeight: '600', letterSpacing: 0.5, textTransform: 'uppercase' },
+  expandAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#15294c',
+    borderWidth: 1,
+    borderColor: '#294a78',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  expandAllText: {
+    fontSize: 10,
+    color: '#38bdf8',
+    fontWeight: '500',
+  },
   eventTimeline: { paddingHorizontal: 2 },
-  eventRow: { flexDirection: 'row', minHeight: 74 },
+  eventRow: { flexDirection: 'row', marginBottom: 8 },
   eventRail: { width: 22, alignItems: 'center' },
-  eventDot: { width: 9, height: 9, borderRadius: 5, marginTop: 5, backgroundColor: '#38bdf8', borderWidth: 2, borderColor: '#0b1834' },
+  eventDot: { width: 9, height: 9, borderRadius: 5, marginTop: 10, backgroundColor: '#38bdf8', borderWidth: 2, borderColor: '#0b1834' },
   eventDotIntervention: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#34d399' },
   eventLine: { flex: 1, width: 1, backgroundColor: '#294a78', marginVertical: 3 },
-  eventContent: { flex: 1, paddingBottom: 14, paddingLeft: 8 },
-  eventHeadingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  eventTime: { color: '#eef7ff', fontSize: 12, fontWeight: '800' },
-  eventMeta: { color: '#7890aa', fontSize: 9, textTransform: 'capitalize' },
-  eventName: { color: '#a9bfdf', fontSize: 10, marginTop: 3 },
-  eventOutcome: { fontSize: 9, lineHeight: 13, marginTop: 4, fontWeight: '600' },
+  eventContent: {
+    flex: 1,
+    backgroundColor: '#0c1b35',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1e385f',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginLeft: 6,
+  },
+  eventContentIntervention: {
+    borderColor: '#059669',
+    backgroundColor: '#0a233f',
+  },
+  eventHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  eventIndexBadge: {
+    backgroundColor: '#163156',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 0.8,
+    borderColor: '#294a78',
+  },
+  eventIndexText: {
+    color: '#7dd3fc',
+    fontSize: 9.5,
+    fontWeight: '600',
+  },
+  eventTime: { color: '#eef7ff', fontSize: 11.5, fontWeight: '600' },
+  compactChipsRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+  },
+  compactChipText: {
+    fontSize: 8.5,
+    fontWeight: '500',
+    backgroundColor: '#081427',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 0.6,
+    borderColor: '#183155',
+  },
+  chevronWrap: {
+    paddingLeft: 4,
+  },
+  expandedContent: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#1a335a',
+  },
+  inflatedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(52, 211, 153, 0.15)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 0.8,
+    borderColor: '#34d399',
+  },
+  inflatedText: {
+    color: '#34d399',
+    fontSize: 9.5,
+    fontWeight: '600',
+  },
+  fourMetricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 6,
+  },
+  metricCell: {
+    width: '48.5%',
+    backgroundColor: '#081427',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#183155',
+    padding: 6,
+  },
+  metricLabel: {
+    color: '#7890aa',
+    fontSize: 7.5,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  metricValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 1,
+  },
+  metricValue: {
+    color: '#eef7ff',
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  miniTierPill: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 0.8,
+  },
+  miniTierText: {
+    fontSize: 7.5,
+    fontWeight: '600',
+  },
+  metricSub: {
+    color: '#8fa8c7',
+    fontSize: 8,
+    fontWeight: '400',
+  },
+  outcomeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    backgroundColor: '#081427',
+    padding: 6,
+    borderRadius: 6,
+    borderWidth: 0.8,
+    borderColor: '#183155',
+  },
+  eventOutcome: { fontSize: 9.5, lineHeight: 14, fontWeight: '500', flex: 1 },
   eventOutcomeGood: { color: '#6ee7b7' },
   eventOutcomeWatch: { color: '#fbbf24' },
+  tapHint: {
+    color: '#557294',
+    fontSize: 8.5,
+    fontWeight: '400',
+    marginTop: 6,
+    textAlign: 'right',
+  },
+  sheetButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 5,
+    marginTop: 8,
+    paddingVertical: 2,
+  },
+  sheetButtonText: {
+    color: '#38bdf8',
+    fontSize: 9.5,
+    fontWeight: '500',
+  },
+  showMoreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#15294c',
+    borderWidth: 1,
+    borderColor: '#294a78',
+    borderRadius: 10,
+    paddingVertical: 9,
+    marginTop: 6,
+  },
+  showMoreText: {
+    color: '#38bdf8',
+    fontSize: 11,
+    fontWeight: '600',
+  },
 });

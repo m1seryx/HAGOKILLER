@@ -168,6 +168,14 @@ export async function dbLoadActionFeedback(): Promise<ActionFeedbackRecord[]> {
   return Object.values(map ?? {}).sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+export async function dbSetKv(key: string, value: string): Promise<void> {
+  await AsyncStorage.setItem(`@hagokiller:kv:${key}`, value);
+}
+
+export async function dbGetKv(key: string): Promise<string | null> {
+  return AsyncStorage.getItem(`@hagokiller:kv:${key}`);
+}
+
 export async function dbClearUserData(): Promise<void> {
   await AsyncStorage.multiRemove([
     PROFILE_KEY,

@@ -21,12 +21,14 @@ import moment from 'moment';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { GlassCard } from '../components/GlassCard';
 import { ConfirmModal } from '../components/ConfirmModal';
+import { ImportDataModal } from '../components/ImportDataModal';
 import { SnoreDetectionControls } from '../components/SnoreDetectionControls';
 import { BleRadarAnimation } from '../components/BleRadarAnimation';
 import { MicTestRadar } from '../components/MicTestRadar';
 import { useDevice } from '../context/DeviceContext';
 import { useUser } from '../context/UserContext';
 import { bleService, isMockBle } from '../services/bleService';
+import { exportDataToFileOrShare, ImportResult } from '../services/dataExportImport';
 import {
   hydrateNotificationPref,
   setNotificationsEnabled,
@@ -40,7 +42,7 @@ import {
 import { BLEDevice, OnDeviceModelTier } from '../types';
 import { isValidPairingPin } from '../utils/pinValidation';
 import { colors } from '../constants/theme';
-import { loadSleepEvents } from '../services/userStorage';
+import { loadSleepEvents, clearUserData } from '../services/userStorage';
 import {
   PUMP_DURATION_MAX_SEC,
   PUMP_DURATION_MIN_SEC,
@@ -157,6 +159,13 @@ export const SettingsScreen = () => {
   const [modelRepairMessage, setModelRepairMessage] = useState('');
   const [selectedModelTier, setSelectedModelTier] = useState<OnDeviceModelTier>('compact');
   const [lastPillowSync, setLastPillowSync] = useState<number | null>(null);
+  const [clearingData, setClearingData] = useState(false);
+  const [clearConfirmVisible, setClearConfirmVisible] = useState(false);
+  const [clearMessage, setClearMessage] = useState('');
+  const [exportingData, setExportingData] = useState(false);
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [dataFeedbackMessage, setDataFeedbackMessage] = useState('');
+  const [dataFeedbackType, setDataFeedbackType] = useState<'success' | 'error'>('success');
   const pinRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -424,6 +433,63 @@ export const SettingsScreen = () => {
     setModelDownloadTier(tier);
   };
 
+  const handleClearData = () => {
+    setClearConfirmVisible(true);
+  };
+
+  const handleExportData = async () => {
+    setExportingData(true);
+    setDataFeedbackMessage('');
+    try {
+      const res = await exportDataToFileOrShare();
+      setDataFeedbackType('success');
+      if (res.method === 'download') {
+        setDataFeedbackMessage(`Backup file downloaded: ${res.filename}`);
+      } else {
+        setDataFeedbackMessage('Backup shared successfully.');
+      }
+      setTimeout(() => setDataFeedbackMessage(''), 5500);
+    } catch (err: any) {
+      setDataFeedbackType('error');
+      setDataFeedbackMessage(err?.message || 'Failed to export sleep data.');
+      setTimeout(() => setDataFeedbackMessage(''), 5500);
+    } finally {
+      setExportingData(false);
+    }
+  };
+
+  const handleImportComplete = (result: ImportResult) => {
+    setDataFeedbackType('success');
+    setDataFeedbackMessage(
+      `Imported ${result.eventsImported} sleep events (${result.mode === 'replace' ? 'replaced' : 'merged'}).`
+    );
+    setTimeout(() => setDataFeedbackMessage(''), 6000);
+  };
+
+  const executeClearData = async () => {
+    setClearConfirmVisible(false);
+    setClearingData(true);
+    setClearMessage('');
+    try {
+      if (typeof (bleService as any).clearAllData === 'function') {
+        await (bleService as any).clearAllData();
+      } else if (typeof (bleService as any).resetAndReseed === 'function') {
+        await (bleService as any).resetAndReseed();
+      } else if (typeof (bleService as any).clearEvents === 'function') {
+        await (bleService as any).clearEvents();
+      }
+      await clearUserData();
+      setClearMessage('All sleep history and logs have been cleared.');
+      setTimeout(() => setClearMessage(''), 4500);
+    } catch (e) {
+      console.error('[clear data]', e);
+      setClearMessage('Failed to clear sleep data. Please try again.');
+      setTimeout(() => setClearMessage(''), 4500);
+    } finally {
+      setClearingData(false);
+    }
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -469,7 +535,7 @@ export const SettingsScreen = () => {
               ['bluetooth-b', 'Pairing', 'pairing', statusLabel],
               ['heartbeat', 'Device health', 'health', healthNeedsAttention ? 'Check' : 'Ready'],
               ['sliders-h', 'Detection and inflation', 'detection', `${snoreThreshold} in ${snoreWindowSec}s`],
-              ['hand-paper', 'Manual controls', 'controls', connected ? 'Ready' : 'Offline'],
+              ['hand-paper', 'Manual controls', 'controls', ''],
             ].map(([icon, label, id, value]) => (
               <TouchableOpacity
                 key={id}
@@ -479,7 +545,7 @@ export const SettingsScreen = () => {
               >
                 <FontAwesome5 name={icon as 'bluetooth-b'} size={16} color={colors.accentDark} style={styles.menuIcon} />
                 <Text style={styles.menuLabel}>{label}</Text>
-                <Text style={styles.menuValue}>{value}</Text>
+                {value ? <Text style={styles.menuValue}>{value}</Text> : null}
                 <FontAwesome5 name="chevron-right" size={12} color="#c5ced6" />
               </TouchableOpacity>
             ))}
@@ -1213,8 +1279,92 @@ export const SettingsScreen = () => {
             <FontAwesome5 name="play-circle" size={14} color="#ffffff" />
             <Text style={styles.dangerButtonText}>Test air pump ({TEST_PUMP_SECONDS}s)</Text>
           </TouchableOpacity>
+
+          <View style={styles.dataDivider} />
+
+          <Text style={[styles.cardTitle, { marginTop: 4, marginBottom: 4 }]}>Backup and restore data</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 14, lineHeight: 18 }}>
+            Export all sleep sessions, night details, and settings to a JSON backup, or import data from a previous file.
+          </Text>
+
+          {dataFeedbackMessage ? (
+            <View style={[
+              styles.feedbackBanner,
+              dataFeedbackType === 'error' ? styles.feedbackBannerError : styles.feedbackBannerSuccess,
+            ]}>
+              <FontAwesome5
+                name={dataFeedbackType === 'error' ? 'exclamation-circle' : 'check-circle'}
+                size={13}
+                color={dataFeedbackType === 'error' ? '#ef4444' : '#10b981'}
+              />
+              <Text style={[
+                styles.feedbackText,
+                dataFeedbackType === 'error' ? styles.feedbackTextError : styles.feedbackTextSuccess,
+              ]}>
+                {dataFeedbackMessage}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Export Button */}
+          <TouchableOpacity
+            style={[styles.exportButton, exportingData && styles.saveButtonDisabled]}
+            onPress={handleExportData}
+            disabled={exportingData}
+            activeOpacity={0.85}
+          >
+            {exportingData ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <FontAwesome5 name="file-export" size={14} color="#ffffff" />
+            )}
+            <Text style={styles.exportButtonText}>
+              {exportingData ? 'Exporting…' : 'Export sleep data (JSON)'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Import Button */}
+          <TouchableOpacity
+            style={styles.importButton}
+            onPress={() => setImportModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <FontAwesome5 name="file-import" size={14} color="#0284c7" />
+            <Text style={styles.importButtonText}>Import sleep data (JSON)</Text>
+          </TouchableOpacity>
+
+          <View style={styles.dataDivider} />
+
+          <Text style={[styles.cardTitle, { marginTop: 4, marginBottom: 4 }]}>Reset sleep data</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 13, marginBottom: 12, lineHeight: 18 }}>
+            Permanently erase all recorded sleep sessions and start with a clean slate.
+          </Text>
+
+          {clearMessage ? (
+            <View style={[styles.feedbackBanner, styles.feedbackBannerSuccess]}>
+              <FontAwesome5 name="check-circle" size={13} color="#10b981" />
+              <Text style={[styles.feedbackText, styles.feedbackTextSuccess]}>{clearMessage}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.dangerButton, clearingData && styles.saveButtonDisabled]}
+            onPress={handleClearData}
+            disabled={clearingData}
+            activeOpacity={0.85}
+          >
+            {clearingData ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <FontAwesome5 name="trash-alt" size={14} color="#ffffff" />
+            )}
+            <Text style={styles.dangerButtonText}>
+              {clearingData ? 'Clearing…' : 'Clear all sleep data'}
+            </Text>
+          </TouchableOpacity>
         </GlassCard>
         ) : null}
+
         </View>
       </ScrollView>
 
@@ -1355,6 +1505,22 @@ export const SettingsScreen = () => {
         artwork="unplug"
         onConfirm={handleUnpair}
         onCancel={() => setUnpairVisible(false)}
+      />
+      <ConfirmModal
+        visible={clearConfirmVisible}
+        title="Erase all sleep data?"
+        message="This permanently deletes all recorded sleep sessions and logs. The dashboard, night details, and logs will be reset to 0 events. This cannot be undone."
+        eyebrow="DATA RESET"
+        confirmLabel="Yes, clear data"
+        cancelLabel="Keep data"
+        destructive
+        onConfirm={executeClearData}
+        onCancel={() => setClearConfirmVisible(false)}
+      />
+      <ImportDataModal
+        visible={importModalVisible}
+        onClose={() => setImportModalVisible(false)}
+        onImportComplete={handleImportComplete}
       />
     </SafeAreaView>
   );
@@ -1809,6 +1975,78 @@ const styles = StyleSheet.create({
   },
   saveMessage: { color: '#10b981', fontSize: 12, marginBottom: 10, fontWeight: '600' },
   saveError: { color: '#fca5a5' },
+  exportButton: {
+    backgroundColor: '#0284c7',
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' as const } : null),
+  },
+  importButton: {
+    backgroundColor: '#f0f9ff',
+    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    marginBottom: 14,
+    ...(Platform.OS === 'web' ? { cursor: 'pointer' as const } : null),
+  },
+  exportButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  importButtonText: {
+    color: '#0284c7',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  dataDivider: {
+    height: 1,
+    backgroundColor: '#e2e8f0',
+    marginVertical: 12,
+  },
+  feedbackBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  feedbackBannerSuccess: {
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#a7f3d0',
+  },
+  feedbackBannerError: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+  },
+  feedbackText: {
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 16,
+  },
+  feedbackTextSuccess: {
+    color: '#065f46',
+    fontWeight: '500',
+  },
+  feedbackTextError: {
+    color: '#b91c1c',
+    fontWeight: '500',
+  },
   dangerButton: {
     backgroundColor: '#ef4444',
     borderRadius: 14,
@@ -1838,7 +2076,7 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 10,
   },
-  dangerButtonText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
+  dangerButtonText: { color: '#ffffff', fontWeight: '600', fontSize: 14 },
   pinOverlay: {
     flex: 1,
     justifyContent: 'center',

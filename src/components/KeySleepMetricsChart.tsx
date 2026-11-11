@@ -115,31 +115,54 @@ export const KeySleepMetricsChart: React.FC<KeySleepMetricsChartProps> = ({ even
   const peakDelta = rmsChange(primary.peakRms, compare.peakRms);
 
   const plot = useMemo(() => {
-    const measured = [...primaryPoints, ...comparePoints].filter((point): point is SnorePoint & { rms: number } => point.rms != null);
-    const combined = [...measured].sort((left, right) => left.key - right.key);
+    const primaryMeasured = primaryPoints.filter((point): point is SnorePoint & { rms: number } => point.rms != null);
+    const compareMeasured = comparePoints.filter((point): point is SnorePoint & { rms: number } => point.rms != null);
+    const combined = [...primaryMeasured, ...compareMeasured];
     if (combined.length === 0 || chartWidth <= 0) return null;
-    const minKey = combined[0].key;
-    const maxKey = combined[combined.length - 1].key;
-    const sameMoment = maxKey === minKey;
-    const origin = sameMoment ? minKey - 30 : minKey;
-    const span = sameMoment ? 60 : maxKey - minKey;
+
     const plotWidth = Math.max(chartWidth - PAD_LEFT - PAD_RIGHT, 1);
     const yMax = Math.max(...combined.map((point) => point.rms), 1);
-    const place = (point: SnorePoint & { rms: number }) => ({
-      ...point,
-      x: PAD_LEFT + ((point.key - origin) / span) * plotWidth,
-      y: PAD_TOP + (1 - point.rms / yMax) * PLOT_HEIGHT,
-    });
-    const uniqueTimes = combined.filter((point, index, all) => all.findIndex((item) => item.key === point.key) === index);
+
+    // Place each snore event evenly spaced across the plot width (matching Image 1).
+    // This prevents vertical clumping or stacked needle spikes when snores occur
+    // in rapid streaks (e.g. rolling window inflation streaks only seconds apart).
+    const placeSeries = (series: Array<SnorePoint & { rms: number }>) => {
+      const count = series.length;
+      return series.map((point, index) => ({
+        ...point,
+        x: count <= 1
+          ? PAD_LEFT + plotWidth / 2
+          : PAD_LEFT + (index / (count - 1)) * plotWidth,
+        y: PAD_TOP + (1 - point.rms / yMax) * PLOT_HEIGHT,
+      }));
+    };
+
+    const placedPrimary = placeSeries(primaryMeasured);
+    const placedCompare = placeSeries(compareMeasured);
+
+    // Pick clean, non-overlapping time labels (start time, peak loudest time, end time)
     const labels: Array<SnorePoint & { x: number; y: number }> = [];
-    labelIndexes(uniqueTimes.length, 6).forEach((index) => {
-      const point = place(uniqueTimes[index]);
-      const previous = labels[labels.length - 1];
-      if (!previous || point.x - previous.x > 52) labels.push(point);
-    });
+    const sourceSeries = placedPrimary.length >= placedCompare.length ? placedPrimary : placedCompare;
+    if (sourceSeries.length > 0) {
+      const first = sourceSeries[0];
+      labels.push(first);
+
+      const loudest = Math.max(...sourceSeries.map((p) => p.rms));
+      const peak = sourceSeries.find((p) => p.rms === loudest);
+      if (peak && Math.abs(peak.x - first.x) > 52) {
+        labels.push(peak);
+      }
+
+      const last = sourceSeries[sourceSeries.length - 1];
+      const prev = labels[labels.length - 1];
+      if (last && Math.abs(last.x - prev.x) > 52 && Math.abs(last.x - first.x) > 52) {
+        labels.push(last);
+      }
+    }
+
     return {
-      primary: primaryPoints.filter((point): point is SnorePoint & { rms: number } => point.rms != null).map(place),
-      compare: comparePoints.filter((point): point is SnorePoint & { rms: number } => point.rms != null).map(place),
+      primary: placedPrimary,
+      compare: placedCompare,
       labels,
       yMax: Math.round(yMax),
       yMid: Math.round(yMax / 2),
@@ -382,8 +405,8 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   headerCopy: { flex: 1 },
-  eyebrow: { color: colors.accent, fontSize: 9, fontWeight: '800', letterSpacing: 1 },
-  title: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  eyebrow: { color: colors.accent, fontSize: 9, fontWeight: '500', letterSpacing: 1 },
+  title: { color: colors.text, fontSize: 15, fontWeight: '600' },
   dateRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   dateButton: {
     flex: 1,
@@ -398,8 +421,8 @@ const styles = StyleSheet.create({
   },
   swatch: { width: 8, height: 28, borderRadius: 4, marginRight: 8 },
   dateCopy: { flex: 1 },
-  dateLabel: { color: colors.textMuted, fontSize: 9, fontWeight: '800', letterSpacing: 0.6 },
-  dateValue: { color: colors.text, fontSize: 14, fontWeight: '800' },
+  dateLabel: { color: colors.textMuted, fontSize: 9, fontWeight: '500', letterSpacing: 0.6 },
+  dateValue: { color: colors.text, fontSize: 14, fontWeight: '500' },
   table: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -419,12 +442,12 @@ const styles = StyleSheet.create({
   },
   tableLabelWrap: { flex: 1.1, minWidth: 0, paddingRight: 6 },
   tableCell: { flex: 1, minWidth: 0 },
-  tableLabel: { color: colors.text, fontSize: 12, fontWeight: '800' },
-  tableHeadText: { color: colors.textMuted, fontSize: 11, fontWeight: '800' },
-  tableValue: { color: colors.text, fontSize: 14, fontWeight: '800' },
-  tableValueMuted: { color: colors.textSecondary, fontSize: 14, fontWeight: '700' },
-  tableHint: { color: colors.textMuted, fontSize: 10, fontWeight: '600' },
-  delta: { color: colors.textMuted, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  tableLabel: { color: colors.text, fontSize: 12, fontWeight: '400' },
+  tableHeadText: { color: colors.textMuted, fontSize: 11, fontWeight: '500' },
+  tableValue: { color: colors.text, fontSize: 14, fontWeight: '500' },
+  tableValueMuted: { color: colors.textSecondary, fontSize: 14, fontWeight: '400' },
+  tableHint: { color: colors.textMuted, fontSize: 10, fontWeight: '400' },
+  delta: { color: colors.textMuted, fontSize: 10, fontWeight: '400', marginTop: 2 },
   deltaBetter: { color: BETTER },
   deltaWorse: { color: WORSE },
   chartWrap: { minHeight: 168, marginTop: 4 },
@@ -435,7 +458,7 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     color: colors.textMuted,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   xLabel: {
     position: 'absolute',
@@ -444,16 +467,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: colors.textMuted,
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '500',
   },
   empty: {
     color: colors.textMuted,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '500',
     paddingVertical: 48,
     textAlign: 'center',
   },
-  axisNote: { color: colors.textMuted, fontSize: 11, fontWeight: '600', marginTop: 8 },
+  axisNote: { color: colors.textMuted, fontSize: 11, fontWeight: '500', marginTop: 8 },
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(5, 6, 12, 0.45)',
@@ -471,7 +494,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  calendarTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
+  calendarTitle: { color: colors.text, fontSize: 16, fontWeight: '600' },
   dayGrid: { flexDirection: 'row', flexWrap: 'wrap' },
   dayCell: {
     width: `${100 / 7}%`,
@@ -480,6 +503,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dayCellSelected: { backgroundColor: colors.accent, borderRadius: 10 },
-  dayText: { color: colors.text, fontSize: 13, fontWeight: '600' },
-  dayTextSelected: { color: '#ffffff', fontWeight: '800' },
+  dayText: { color: colors.text, fontSize: 13, fontWeight: '500' },
+  dayTextSelected: { color: '#ffffff', fontWeight: '600' },
 });

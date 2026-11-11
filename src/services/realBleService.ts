@@ -99,6 +99,10 @@ export class RealBleService {
     return this.data.subscribeEvents(listener);
   }
 
+  subscribeReload(listener: () => void): () => void {
+    return this.data.subscribeReload(listener);
+  }
+
   subscribeMicTest(listener: (preview: MicTestPreview) => void): () => void {
     this.micTestListeners.add(listener);
     return () => {
@@ -521,7 +525,21 @@ export class RealBleService {
   }
 
   clearEvents() {
-    return this.data.clearEvents();
+    return this.data.clearAllData();
+  }
+
+  async clearAllData(): Promise<void> {
+    await this.data.clearAllData();
+    this.notify();
+  }
+
+  async resetAndReseed(): Promise<void> {
+    await this.data.resetAndReseed();
+    this.notify();
+  }
+
+  async reloadFromStorage(): Promise<SleepEvent[]> {
+    return this.data.reloadFromStorage();
   }
 
   async saveDeviceSettings(settings: DeviceSettings) {
